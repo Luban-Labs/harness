@@ -1,0 +1,6 @@
+interface:
+  display_name: "Interview Me"
+  short_description: "采访式对需求,一次一问,自判大小"
+  default_prompt: "用 $interview-me 采访我,把我想做的东西对清楚再决定要不要出 spec。"
+policy:
+  allow_implicit_invocation: true

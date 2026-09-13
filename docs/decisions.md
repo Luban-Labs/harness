@@ -1,0 +1,16 @@
+# 决策账本
+
+给人看的。不进路由表、不进任何注入;只追加。每条:背景、决定、为什么。
+
+- **2026-09-10 状态只存 spec 首行,不建索引。** Task 就是 `.scratch/<功能名>/` 目录,`spec.md` 第一行 `Status:` 是唯一状态。备选是再维护一份 tasks.json,放弃理由:两份真相要同步,漏改一处就对不上。
+- **2026-09-10 每轮一行注入先不做。** 状态只有一行、Task 一次只有一个,偏移空间小;真在压缩后观察到偏移再加,几十行能补。Trellis 用两次事故证明了每轮注入的价值,但它的任务模型比这里复杂得多。
+- **2026-09-10 规则不带出处。** 出处对 agent 没有意义,只对人的决策有意义;放进规则就是常驻税。决策单独记在本文件,agent 不主动读。
+- **2026-09-10 规则载体是根 AGENTS.md 路由表 + docs/rules/ 主题文件,不用 .claude/rules/。** 理由:owner 同时用 Codex,Codex 只读 AGENTS.md(从项目根到当前目录逐级拼接,允许符号链接);`.claude/rules/` 的 `paths:` 自动加载是 Claude 独有的。代价:路由靠模型读到那一行再去开文件,是文字约束不是机制。
+- **2026-09-10 AGENTS.md 是路由表不是说明书。** 只放全项目通用硬规则和「什么时候读什么」;主题规则放 docs/rules/,被路由到才读。否则什么都加载,就是一座石山。
+- **2026-09-10 Stop hook 兜底进展,四条件同时成立才拦。** 恰好一个 in-progress、本会话改过代码、改代码晚于写 spec、非被拦回来的那一轮。理由:Stop 每轮都触发,判定不精确就每轮都烦。
+- **2026-09-10 无活跃 Task 时 harness 注入零字节,作为不变量。** 每个上下文进入点登记条件与上限,登不上的不加。owner 最怕的就是无关时被塞一堆无关上下文。
+- **2026-09-10 stop-guard 用 mtime 而不是会话记录判「改过代码」。** 本会话实测:auto 模式下大量写文件走 Bash heredoc,transcript 里没有 Edit/Write 调用,按记录判会漏。改为 session-start 落 `.scratch/.session` 时间标记,stop-guard 比对文件 mtime;工具无关,Claude 与 Codex 同一套。代价:两个会话同时开同一项目会互相覆盖标记,v1 接受。
+- **2026-09-10 hook 脚本随项目走,不按绝对路径引用 harness 仓库。** owner 定:放 `.claude/hooks/` 与 `.codex/hooks/`(后者符号链接),配置里 Claude 用 `$CLAUDE_PROJECT_DIR`、Codex 用相对路径,和 Trellis 一样自包含。代价:harness 升级要重新复制两个文件;收益:项目不依赖 harness 仓库的位置。
+- **2026-09-10 会话标记只在 startup / clear 时重置,compact / resume 保留。** Astra 讨论审出的 blocking:compact 也触发 SessionStart,若每次都 touch `.scratch/.session`,压缩前的改动失去基线,Stop 兜底失效。Codex 的压缩走 PreCompact/PostCompact 不经 SessionStart,不受影响。\n- **2026-09-10 引进 to-tickets,引一半。** 引:纵切可演示、一块一个会话的切法;Blocked by 依赖边与 frontier;expand–contract 例外;拆完先对一轮(一次一问);GitHub issue 或本地文件两种发布,写进 spec 头部 `Tickets:` 行;ticket 只有开/关两态,in-progress 只写在 Task 进展行;做完一张关一张(补 Matt 断掉的收尾)。不引:标签体系、父 issue 链接、自动派发(派工归 WORKERS.md)。出处:owner「感觉可能还是需要 to tickets」「可以发 GitHub 其实,这样才规矩」「我怕每个 ticket 状态不同」。hook 与代码不动。
+- **2026-09-10 Codex hook 信任不走交互界面。** 复现了 Codex rust-v0.153.4 的 hook_hash(归一化定义 {event_name, hooks:[{async,command,timeout,type}]} → 键排序紧凑 JSON → sha256),用 owner 已有条目反算一致;init 装完直接打印 [hooks.state] 条目,追加到 ~/.codex/config.toml 即生效(本仓库已写入并用无绕过参数的 codex exec 验证 hook 执行)。出处:owner「信任」。代价:Codex 改哈希算法时 init 打印的条目会失效,测试里的对照向量会先报警。
+- **2026-09-12 Task 不只由 interview-me 建。** owner 直接说建 Task、要记录的 bug、自己已确定但想留记录的小改动,直接建 `.scratch/<功能名>/spec.md` 不采访;已有 spec/prd 原样放入。修正此前「小的直接干不建 Task」:小的默认直接干,owner 要记录时可建。出处:owner「如果有 bug 需求需要记录,或者我比较确定的小修改需要记录的,也可以建 task」。
