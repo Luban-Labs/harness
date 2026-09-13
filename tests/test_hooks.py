@@ -338,7 +338,7 @@ class HookBlackBoxTest(unittest.TestCase):
         self.assertIn("api(Scope: services/api/)", context)
         self.assertIn("web(Scope: services/web/)", context)
         self.assertIn("legacy(Scope: all-project)", context)
-        self.assertIn("无法唯一匹配", context)
+        self.assertIn("进对应 Scope 的目录", context)
 
     def test_session_start_overlap_and_missing_scope_summarize_all_tasks(self):
         self.make_task("all")
