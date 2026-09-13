@@ -176,7 +176,7 @@ class HookBlackBoxTest(unittest.TestCase):
             output,
             "[harness] 有 2 个 in-progress Task: "
             "alpha(Scope: all-project), zeta(Scope: all-project);"
-            "当前目录无法唯一匹配 Scope,请明确 Scope 或先收成一个 Task",
+            "进对应 Scope 的目录开会话可注入该 Task 的详情",
         )
 
         (self.root / ".scratch" / "alpha" / "spec.md").write_text(

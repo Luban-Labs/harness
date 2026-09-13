@@ -99,7 +99,7 @@ def main():
                 f"{name}(Scope: {scope or 'all-project'})"
                 for name, scope, _, _ in tasks)
             context = (f"[harness] 有 {len(tasks)} 个 in-progress Task: {summary};"
-                       "当前目录无法唯一匹配 Scope,请明确 Scope 或先收成一个 Task")
+                       "进对应 Scope 的目录开会话可注入该 Task 的详情")
     else:
         name, _, _, lines = tasks[0]
         context = task_context(name, lines)
