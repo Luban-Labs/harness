@@ -26,5 +26,5 @@
 
 - Codex 在项目根 `.codex/hooks.json` 中按同一片段配置，command 改为 `python3 .codex/hooks/session_start.py` 与 `python3 .codex/hooks/stop_guard.py`（Codex 从项目根启动）；Codex ≥0.153 从项目根到当前目录加载它。
 - Codex 的 hook 必须先被信任才会执行：init 装完会打印两条 `[hooks.state."<路径>:<事件>:0:0"]` 信任条目，追加到 `~/.codex/config.toml` 即可（信任按 hook 定义哈希：改脚本内容不用重信，改 command 或 timeout 要重信）；也可在项目目录进 `codex` 跑一次 `/hooks`。仅做验证时可临时加 `--dangerously-bypass-hook-trust`，不得写进持久配置。
-- hook 脚本随 init 复制进项目；harness 升级时重新复制 `.claude/hooks/` 两个文件即可。
-- Stop 兜底只按文件 mtime 尽力提醒，不是完整门禁：抓不到纯删除、改了 spec 正文却没写进展、项目超过 20000 个文件这三种情况；进展写没写最终靠 agent 自觉与收件核对。
+- harness 升级时重新复制 `.claude/hooks/stop_guard.py`、`.claude/hooks/session_start.py` 和 `docs/rules/harness.md`；init 会将这三个文件复制进项目。
+- 每轮停下前仍须补进展并在收件时核对：Stop 只对 mtime 晚于 spec 且有本会话或其子代理直接证据的候选文件提醒；证据限晚于 spec 的成功编辑结果或 Codex FileChange，以及 mtime 落在调用至最后结果加 1ms 窗口内的点名文件命令或指定 git 工作区修改命令。两个 hook 不再读写 `.scratch/.session`；纯删除、未点名命令、后台进程、独立 Codex 子线程、只改 spec 正文或项目超过 20000 个文件可能漏过。

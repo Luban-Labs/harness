@@ -54,16 +54,8 @@ def main():
     if root is None:
         return
     scratch = root / ".scratch"
-    marker = scratch / ".session"
-    if scratch.is_symlink() or marker.is_symlink():
+    if scratch.is_symlink():
         return
-    # compact / resume 是同一会话的延续:保留既有标记,否则压缩前的改动会失去基线,Stop 兜底失效。
-    source = payload.get("source")
-    if source in ("compact", "resume") and marker.is_file():
-        pass
-    else:
-        marker.touch()
-
     tasks = []
     for task in sorted(scratch.iterdir()):
         if task.name == "archive" or not task.is_dir():
