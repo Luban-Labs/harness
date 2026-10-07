@@ -21,16 +21,24 @@ class HookBlackBoxTest(HookCase):
             self.reset_root()
             code = self.root / "changed.py"
             code.write_text("x", encoding="utf-8")
-            self.transcript(*self.claude_call("Edit", {"file_path": str(code)},
-                                               1_900_000_000_000_000_200,
-                                               1_900_000_000_000_000_400))
+            self.transcript(
+                *self.claude_call(
+                    "Edit",
+                    {"file_path": str(code)},
+                    1_900_000_000_000_000_200,
+                    1_900_000_000_000_000_400,
+                )
+            )
             self.assertEqual(self.run_stop(), "")
 
         with self.subTest("ready task"):
             self.reset_root()
             _, _, code, base = self.stop_fixture(status="ready-for-agent")
-            self.transcript(*self.claude_call("Edit", {"file_path": str(code)},
-                                               base + 200, base + 400))
+            self.transcript(
+                *self.claude_call(
+                    "Edit", {"file_path": str(code)}, base + 200, base + 400
+                )
+            )
             self.assertEqual(self.run_stop(), "")
 
         with self.subTest("missing transcript"):
@@ -114,13 +122,21 @@ class HookBlackBoxTest(HookCase):
         base = 1_900_000_000_000_000_000
         self.set_mtime(spec, base + 100)
         self.set_mtime(outside, base + 300)
-        self.transcript(*self.claude_call("Edit", {"file_path": str(outside)}, base + 200, base + 400))
+        self.transcript(
+            *self.claude_call(
+                "Edit", {"file_path": str(outside)}, base + 200, base + 400
+            )
+        )
         self.assertEqual(self.run_stop(), "")
 
         inside = scope / "changed.py"
         inside.write_text("changed = True\n", encoding="utf-8")
         self.set_mtime(inside, base + 300)
-        self.transcript(*self.claude_call("Edit", {"file_path": str(inside)}, base + 200, base + 400))
+        self.transcript(
+            *self.claude_call(
+                "Edit", {"file_path": str(inside)}, base + 200, base + 400
+            )
+        )
         self.assert_block(self.run_stop(), "scoped")
 
     def test_stop_guard_selects_scoped_task_from_multiple(self):
@@ -137,22 +153,36 @@ class HookBlackBoxTest(HookCase):
         for path in (api_spec, web_spec, legacy_spec):
             self.set_mtime(path, base + 100)
         self.set_mtime(changed, base + 300)
-        transcript = self.transcript(*self.claude_call("Edit", {"file_path": str(changed)}, base + 200, base + 400))
+        transcript = self.transcript(
+            *self.claude_call(
+                "Edit", {"file_path": str(changed)}, base + 200, base + 400
+            )
+        )
         self.assert_block(
-            self.run_stop({"cwd": str(api), "stop_hook_active": False,
-                           "transcript_path": str(transcript)}), "api"
+            self.run_stop(
+                {
+                    "cwd": str(api),
+                    "stop_hook_active": False,
+                    "transcript_path": str(transcript),
+                }
+            ),
+            "api",
         )
-        self.assertEqual(
-            self.run_stop(self.stop_payload(transcript)), ""
-        )
+        self.assertEqual(self.run_stop(self.stop_payload(transcript)), "")
 
         _, inner_spec = self.make_task("inner", scope="services/api/handlers/")
         handlers = api / "handlers"
         handlers.mkdir()
         self.set_mtime(inner_spec, base + 100)
         self.assertEqual(
-            self.run_stop({"cwd": str(handlers), "stop_hook_active": False,
-                           "transcript_path": str(transcript)}), ""
+            self.run_stop(
+                {
+                    "cwd": str(handlers),
+                    "stop_hook_active": False,
+                    "transcript_path": str(transcript),
+                }
+            ),
+            "",
         )
 
     def test_stop_guard_scoped_excluded_directory_remains_excluded(self):
@@ -163,7 +193,11 @@ class HookBlackBoxTest(HookCase):
         base = 1_900_000_000_000_000_000
         self.set_mtime(spec, base + 100)
         self.set_mtime(changed, base + 300)
-        self.transcript(*self.claude_call("Edit", {"file_path": str(changed)}, base + 200, base + 400))
+        self.transcript(
+            *self.claude_call(
+                "Edit", {"file_path": str(changed)}, base + 200, base + 400
+            )
+        )
         self.assertEqual(self.run_stop(), "")
 
     def test_invalid_scopes_fail_open_for_both_hooks(self):
@@ -174,7 +208,11 @@ class HookBlackBoxTest(HookCase):
             base = 1_900_000_000_000_000_000
             self.set_mtime(spec, base + 100)
             self.set_mtime(changed, base + 300)
-            transcript = self.transcript(*self.claude_call("Edit", {"file_path": str(changed)}, base + 200, base + 400))
+            transcript = self.transcript(
+                *self.claude_call(
+                    "Edit", {"file_path": str(changed)}, base + 200, base + 400
+                )
+            )
             payload = {"cwd": str(self.root), "source": "resume"}
             self.assertEqual(self.run_session(payload), "")
             payload["stop_hook_active"] = False
@@ -185,8 +223,10 @@ class HookBlackBoxTest(HookCase):
             assert_invalid("", self.root / "changed.py")
 
         for kind in ("traversal", "absolute", "symlink"):
-            with self.subTest(scope=kind), tempfile.TemporaryDirectory(
-                    dir=self.root.parent) as outside:
+            with (
+                self.subTest(scope=kind),
+                tempfile.TemporaryDirectory(dir=self.root.parent) as outside,
+            ):
                 self.reset_root()
                 outside = Path(outside)
                 changed = outside / "changed.py"
@@ -195,8 +235,7 @@ class HookBlackBoxTest(HookCase):
                 elif kind == "absolute":
                     scope = f"{outside}/"
                 else:
-                    (self.root / "escape").symlink_to(
-                        outside, target_is_directory=True)
+                    (self.root / "escape").symlink_to(outside, target_is_directory=True)
                     scope = "escape/"
                 assert_invalid(scope, changed)
 
@@ -216,16 +255,35 @@ class HookBlackBoxTest(HookCase):
 
     def test_stop_guard_excludes_named_directories_at_any_depth(self):
         transcript, spec, allowed, base = self.named_edit()
-        excluded = (".scratch", ".git", ".claude", ".codex", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", "target")
+        excluded = (
+            ".scratch",
+            ".git",
+            ".claude",
+            ".codex",
+            "node_modules",
+            ".venv",
+            "venv",
+            "__pycache__",
+            "dist",
+            "build",
+            ".next",
+            "target",
+        )
         rows = []
         for name in excluded:
             path = self.root / "nested" / name / "deeper" / "ignored.txt"
             path.parent.mkdir(parents=True)
             path.write_text("ignored\n", encoding="utf-8")
             self.set_mtime(path, 1_900_000_000_000_000_500)
-            rows.extend(self.claude_call("Edit", {"file_path": str(path)},
-                                         base + 200, base + 600,
-                                         call_id=f"excluded-{name}"))
+            rows.extend(
+                self.claude_call(
+                    "Edit",
+                    {"file_path": str(path)},
+                    base + 200,
+                    base + 600,
+                    call_id=f"excluded-{name}",
+                )
+            )
         self.transcript(*rows)
         self.set_mtime(allowed, base + 100)
         self.assertEqual(self.run_stop(), "")
@@ -245,7 +303,12 @@ class HookBlackBoxTest(HookCase):
         base = 1_900_000_100_000_000_000
         self.set_mtime(spec, base + 100)
         self.set_mtime(first, base + 300)
-        self.transcript(*self.claude_call("Edit", {"file_path": str(first)}, base + 200, base + 400), mtime=base + 500)
+        self.transcript(
+            *self.claude_call(
+                "Edit", {"file_path": str(first)}, base + 200, base + 400
+            ),
+            mtime=base + 500,
+        )
         self.assert_block(self.run_stop(), "active")
 
         extra = fill / "20000.txt"
@@ -255,11 +318,15 @@ class HookBlackBoxTest(HookCase):
 
     def test_readonly_bash_window_and_other_session_edit_do_not_count(self):
         _, spec, code, base = self.stop_fixture()
-        reader = self.transcript(*self.claude_call(
-            "Bash", {"command": "python3 -m pytest tests"}, base + 200, base + 400))
-        self.transcript(*self.claude_call(
-            "Edit", {"file_path": str(code)}, base + 200, base + 400),
-            path=self.root / ".claude" / "other-session.jsonl")
+        reader = self.transcript(
+            *self.claude_call(
+                "Bash", {"command": "python3 -m pytest tests"}, base + 200, base + 400
+            )
+        )
+        self.transcript(
+            *self.claude_call("Edit", {"file_path": str(code)}, base + 200, base + 400),
+            path=self.root / ".claude" / "other-session.jsonl",
+        )
         self.assertLess(base + 200, code.stat().st_mtime_ns)
         self.assertLess(code.stat().st_mtime_ns, base + 400)
         self.assertEqual(self.run_stop(self.stop_payload(reader)), "")
@@ -274,22 +341,36 @@ class HookBlackBoxTest(HookCase):
                     code = self.root / "src" / "note.ipynb"
                     code.write_text("{}", encoding="utf-8")
                 self.set_mtime(code, base + 5_000_000)
-                self.transcript(*self.claude_call(
-                    tool, {field: str(code)}, base + 200, base + 400))
+                self.transcript(
+                    *self.claude_call(tool, {field: str(code)}, base + 200, base + 400)
+                )
                 self.assert_block(self.run_stop(), "active")
 
     def test_direct_edit_failure_old_result_and_other_path_release(self):
-        for kind in ("is_error", "result_equal_spec", "result_before_spec",
-                     "different_path"):
+        for kind in (
+            "is_error",
+            "result_equal_spec",
+            "result_before_spec",
+            "different_path",
+        ):
             with self.subTest(kind=kind):
                 self.reset_root()
                 _, spec, code, base = self.stop_fixture()
                 other = self.root / "elsewhere" / "changed.py"
                 rows = self.claude_call(
-                    "Edit", {"file_path": str(other if kind == "different_path" else code)},
-                    base, base + (100 if kind == "result_equal_spec" else
-                                  99 if kind == "result_before_spec" else 400),
-                    error=(kind == "is_error"))
+                    "Edit",
+                    {"file_path": str(other if kind == "different_path" else code)},
+                    base,
+                    base
+                    + (
+                        100
+                        if kind == "result_equal_spec"
+                        else 99
+                        if kind == "result_before_spec"
+                        else 400
+                    ),
+                    error=(kind == "is_error"),
+                )
                 self.transcript(*rows)
                 self.assertEqual(self.run_stop(), "")
 
@@ -300,8 +381,9 @@ class HookBlackBoxTest(HookCase):
         code.write_text("x", encoding="utf-8")
         self.set_mtime(code, base + 300)
         command = "cat >> tests/x.mjs <<'EOF'\nx\nEOF"
-        self.transcript(*self.claude_call("Bash", {"command": command},
-                                           base + 200, base + 400))
+        self.transcript(
+            *self.claude_call("Bash", {"command": command}, base + 200, base + 400)
+        )
         self.assert_block(self.run_stop(), "active")
         self.set_mtime(code, base + 1_000_401)
         self.assertEqual(self.run_stop(), "")
@@ -311,34 +393,43 @@ class HookBlackBoxTest(HookCase):
         app = self.root / "app.py"
         app.write_text("x", encoding="utf-8")
         self.set_mtime(app, base + 300)
-        self.transcript(*self.claude_call(
-            "Bash", {"command": "cat > myapp.py"}, base + 200, base + 400))
+        self.transcript(
+            *self.claude_call(
+                "Bash", {"command": "cat > myapp.py"}, base + 200, base + 400
+            )
+        )
         self.assertEqual(self.run_stop(), "")
 
     def test_command_window_right_boundary_is_inclusive_one_millisecond(self):
         _, spec, code, base = self.stop_fixture()
         end = base + 2_000_000
-        self.transcript(*self.claude_call(
-            "Bash", {"command": "cat > changed.py"}, base + 200, end))
+        self.transcript(
+            *self.claude_call("Bash", {"command": "cat > changed.py"}, base + 200, end)
+        )
         self.set_mtime(code, end + 1_000_000)
         self.assert_block(self.run_stop(), "active")
         self.set_mtime(code, end + 1_000_001)
         self.assertEqual(self.run_stop(), "")
 
     def test_git_worktree_commands_count_but_status_does_not(self):
-        for command, blocked in (("git merge feat", True),
-                                 ("git -C /x merge feat", True),
-                                 ('git -C "/tmp/work tree" merge feat', True),
-                                 ("git -c user.name=abc --no-pager restore .", True),
-                                 ("git status", False),
-                                 ("git merge-base main HEAD", False),
-                                 ("git -C /x; merge feat", False),
-                                 ("git -c key=value; merge feat", False)):
+        for command, blocked in (
+            ("git merge feat", True),
+            ("git -C /x merge feat", True),
+            ('git -C "/tmp/work tree" merge feat', True),
+            ("git -c user.name=abc --no-pager restore .", True),
+            ("git status", False),
+            ("git merge-base main HEAD", False),
+            ("git -C /x; merge feat", False),
+            ("git -c key=value; merge feat", False),
+        ):
             with self.subTest(command=command):
                 self.reset_root()
                 _, _, code, base = self.stop_fixture()
-                self.transcript(*self.claude_call(
-                    "Bash", {"command": command}, base + 200, base + 400))
+                self.transcript(
+                    *self.claude_call(
+                        "Bash", {"command": command}, base + 200, base + 400
+                    )
+                )
                 output = self.run_stop()
                 if blocked:
                     self.assert_block(output, "active")
@@ -352,9 +443,12 @@ class HookBlackBoxTest(HookCase):
                 _, _, code, base = self.stop_fixture()
                 main = self.transcript()
                 child = main.with_suffix("") / "subagents" / relative
-                self.transcript(*self.claude_call(
-                    "Edit", {"file_path": str(code)}, base + 200, base + 400),
-                    path=child)
+                self.transcript(
+                    *self.claude_call(
+                        "Edit", {"file_path": str(code)}, base + 200, base + 400
+                    ),
+                    path=child,
+                )
                 self.assert_block(self.run_stop(self.stop_payload(main)), "active")
 
         self.reset_root()
@@ -363,9 +457,12 @@ class HookBlackBoxTest(HookCase):
             external = Path(outside) / "changed.py"
             main = self.transcript()
             child = main.with_suffix("") / "subagents" / "agent-outside.jsonl"
-            self.transcript(*self.claude_call(
-                "Edit", {"file_path": str(external)}, base + 200, base + 400),
-                path=child)
+            self.transcript(
+                *self.claude_call(
+                    "Edit", {"file_path": str(external)}, base + 200, base + 400
+                ),
+                path=child,
+            )
             self.assertEqual(self.run_stop(self.stop_payload(main)), "")
 
     def test_codex_file_change_completed_time_int_and_string(self):
@@ -374,13 +471,22 @@ class HookBlackBoxTest(HookCase):
                 self.reset_root()
                 _, _, code, base = self.stop_fixture()
                 completed = (base + 2_000_000) // 1_000_000
-                self.transcript({
-                    "type": "event_msg", "timestamp": self.stamp(base + 2_000_000),
-                    "payload": {"type": "item_completed", "completed_at_ms":
-                                str(completed) if as_string else completed,
-                                "item": {"type": "FileChange",
-                                         "changes": {str(code): {"type": "update"}}}},
-                })
+                self.transcript(
+                    {
+                        "type": "event_msg",
+                        "timestamp": self.stamp(base + 2_000_000),
+                        "payload": {
+                            "type": "item_completed",
+                            "completed_at_ms": str(completed)
+                            if as_string
+                            else completed,
+                            "item": {
+                                "type": "FileChange",
+                                "changes": {str(code): {"type": "update"}},
+                            },
+                        },
+                    }
+                )
                 self.assert_block(self.run_stop(), "active")
 
     def test_codex_file_change_requires_new_completion_and_same_path(self):
@@ -388,13 +494,21 @@ class HookBlackBoxTest(HookCase):
             with self.subTest(kind=kind):
                 self.reset_root()
                 _, _, code, base = self.stop_fixture()
-                path = str(code if kind == "old" else self.root / "other" / "changed.py")
+                path = str(
+                    code if kind == "old" else self.root / "other" / "changed.py"
+                )
                 completed = (base if kind == "old" else base + 2_000_000) // 1_000_000
-                self.transcript({
-                    "type": "event_msg", "timestamp": self.stamp(base + 2_000_000),
-                    "payload": {"type": "item_completed", "completed_at_ms": completed,
-                                "item": {"type": "FileChange", "changes": {path: {}}}},
-                })
+                self.transcript(
+                    {
+                        "type": "event_msg",
+                        "timestamp": self.stamp(base + 2_000_000),
+                        "payload": {
+                            "type": "item_completed",
+                            "completed_at_ms": completed,
+                            "item": {"type": "FileChange", "changes": {path: {}}},
+                        },
+                    }
+                )
                 self.assertEqual(self.run_stop(), "")
 
     def test_codex_exec_js_input_names_file_in_window(self):
@@ -403,12 +517,25 @@ class HookBlackBoxTest(HookCase):
         out.write_text("x", encoding="utf-8")
         self.set_mtime(out, base + 3_000_000)
         self.transcript(
-            {"type": "response_item", "timestamp": self.stamp(base + 2_000_000),
-             "payload": {"type": "custom_tool_call", "call_id": "js-1",
-                         "name": "exec", "input": 'await tools.exec_command({cmd:"cat > out.txt"})'}},
-            {"type": "response_item", "timestamp": self.stamp(base + 4_000_000),
-             "payload": {"type": "custom_tool_call_output", "call_id": "js-1",
-                         "output": "done"}},
+            {
+                "type": "response_item",
+                "timestamp": self.stamp(base + 2_000_000),
+                "payload": {
+                    "type": "custom_tool_call",
+                    "call_id": "js-1",
+                    "name": "exec",
+                    "input": 'await tools.exec_command({cmd:"cat > out.txt"})',
+                },
+            },
+            {
+                "type": "response_item",
+                "timestamp": self.stamp(base + 4_000_000),
+                "payload": {
+                    "type": "custom_tool_call_output",
+                    "call_id": "js-1",
+                    "output": "done",
+                },
+            },
         )
         self.assert_block(self.run_stop(), "active")
 
@@ -416,16 +543,34 @@ class HookBlackBoxTest(HookCase):
         _, _, code, base = self.stop_fixture()
         self.set_mtime(code, base + 5_000_000)
         self.transcript(
-            {"type": "response_item", "timestamp": self.stamp(base + 2_000_000),
-             "payload": {"type": "function_call", "call_id": "same",
-                         "name": "exec_command", "arguments":
-                         json.dumps({"cmd": "cat > changed.py"})}},
-            {"type": "response_item", "timestamp": self.stamp(base + 3_000_000),
-             "payload": {"type": "function_call_output", "call_id": "same",
-                         "output": "first"}},
-            {"type": "response_item", "timestamp": self.stamp(base + 6_000_000),
-             "payload": {"type": "function_call_output", "call_id": "same",
-                         "output": "last"}},
+            {
+                "type": "response_item",
+                "timestamp": self.stamp(base + 2_000_000),
+                "payload": {
+                    "type": "function_call",
+                    "call_id": "same",
+                    "name": "exec_command",
+                    "arguments": json.dumps({"cmd": "cat > changed.py"}),
+                },
+            },
+            {
+                "type": "response_item",
+                "timestamp": self.stamp(base + 3_000_000),
+                "payload": {
+                    "type": "function_call_output",
+                    "call_id": "same",
+                    "output": "first",
+                },
+            },
+            {
+                "type": "response_item",
+                "timestamp": self.stamp(base + 6_000_000),
+                "payload": {
+                    "type": "function_call_output",
+                    "call_id": "same",
+                    "output": "last",
+                },
+            },
         )
         self.assert_block(self.run_stop(), "active")
 
@@ -435,34 +580,70 @@ class HookBlackBoxTest(HookCase):
                 self.reset_root()
                 _, _, code, base = self.stop_fixture()
                 if kind == "escaped":
-                    call = {"type": "response_item", "timestamp": self.stamp(base + 200),
-                            "payload": {"type": "function_call", "call_id": "c",
-                                        "name": "exec_command", "arguments":
-                                        json.dumps({"cmd": 'cat > "changed.py"'})}}
+                    call = {
+                        "type": "response_item",
+                        "timestamp": self.stamp(base + 200),
+                        "payload": {
+                            "type": "function_call",
+                            "call_id": "c",
+                            "name": "exec_command",
+                            "arguments": json.dumps({"cmd": 'cat > "changed.py"'}),
+                        },
+                    }
                 else:
-                    call = {"type": "response_item", "timestamp": self.stamp(base + 200),
-                            "payload": {"type": "local_shell_call", "call_id": "c",
-                                        "action": {"command": ["sh", "-c",
-                                                               "cat > changed.py"]}}}
-                output = {"type": "response_item", "timestamp": self.stamp(base + 400),
-                          "payload": {"type": "function_call_output", "call_id": "c",
-                                      "output": "done"}}
+                    call = {
+                        "type": "response_item",
+                        "timestamp": self.stamp(base + 200),
+                        "payload": {
+                            "type": "local_shell_call",
+                            "call_id": "c",
+                            "action": {"command": ["sh", "-c", "cat > changed.py"]},
+                        },
+                    }
+                output = {
+                    "type": "response_item",
+                    "timestamp": self.stamp(base + 400),
+                    "payload": {
+                        "type": "function_call_output",
+                        "call_id": "c",
+                        "output": "done",
+                    },
+                }
                 self.transcript(call, output)
                 self.assert_block(self.run_stop(), "active")
 
     def test_each_codex_command_tool_name_accepts_raw_input(self):
-        for name in ("exec", "exec_command", "shell", "local_shell_call",
-                     "write_stdin", "js"):
+        for name in (
+            "exec",
+            "exec_command",
+            "shell",
+            "local_shell_call",
+            "write_stdin",
+            "js",
+        ):
             with self.subTest(name=name):
                 self.reset_root()
                 _, _, code, base = self.stop_fixture()
                 self.transcript(
-                    {"type": "response_item", "timestamp": self.stamp(base + 200),
-                     "payload": {"type": "custom_tool_call", "call_id": "c",
-                                 "name": name, "input": "cat > changed.py"}},
-                    {"type": "response_item", "timestamp": self.stamp(base + 400),
-                     "payload": {"type": "custom_tool_call_output", "call_id": "c",
-                                 "output": "done"}},
+                    {
+                        "type": "response_item",
+                        "timestamp": self.stamp(base + 200),
+                        "payload": {
+                            "type": "custom_tool_call",
+                            "call_id": "c",
+                            "name": name,
+                            "input": "cat > changed.py",
+                        },
+                    },
+                    {
+                        "type": "response_item",
+                        "timestamp": self.stamp(base + 400),
+                        "payload": {
+                            "type": "custom_tool_call_output",
+                            "call_id": "c",
+                            "output": "done",
+                        },
+                    },
                 )
                 self.assert_block(self.run_stop(), "active")
 
@@ -472,8 +653,11 @@ class HookBlackBoxTest(HookCase):
                 self.reset_root()
                 _, _, code, base = self.stop_fixture()
                 call = self.claude_call(
-                    tool, {"command": "cat > changed.py", "prompt": "changed.py"},
-                    base + 200, base + 400)
+                    tool,
+                    {"command": "cat > changed.py", "prompt": "changed.py"},
+                    base + 200,
+                    base + 400,
+                )
                 self.transcript(*(call[:1] if tool == "Bash" else call))
                 self.assertEqual(self.run_stop(), "")
 
@@ -484,23 +668,30 @@ class HookBlackBoxTest(HookCase):
         cases = (None, "", 1, [], str(self.root / "missing.jsonl"), str(directory))
         for value in cases:
             with self.subTest(value=value):
-                payload = {"cwd": str(self.root), "stop_hook_active": False,
-                           "transcript_path": value}
+                payload = {
+                    "cwd": str(self.root),
+                    "stop_hook_active": False,
+                    "transcript_path": value,
+                }
                 self.assertEqual(self.run_stop(payload), "")
         payload.pop("transcript_path")
         self.assertEqual(self.run_stop(payload), "")
 
     def test_missing_stop_hook_active_defaults_to_false(self):
         _, _, code, base = self.stop_fixture()
-        transcript = self.transcript(*self.claude_call(
-            "Edit", {"file_path": str(code)}, base + 200, base + 400))
-        self.assert_block(self.run_stop({"cwd": str(self.root),
-                                         "transcript_path": str(transcript)}), "active")
+        transcript = self.transcript(
+            *self.claude_call("Edit", {"file_path": str(code)}, base + 200, base + 400)
+        )
+        self.assert_block(
+            self.run_stop({"cwd": str(self.root), "transcript_path": str(transcript)}),
+            "active",
+        )
 
     def test_old_transcript_and_subagent_file_are_skipped_whole(self):
         _, spec, code, base = self.stop_fixture()
-        edit = self.claude_call("Edit", {"file_path": str(code)},
-                                base + 200, base + 400)
+        edit = self.claude_call(
+            "Edit", {"file_path": str(code)}, base + 200, base + 400
+        )
         main = self.transcript(*edit, mtime=base + 100)
         self.assertEqual(self.run_stop(self.stop_payload(main)), "")
         main = self.transcript(mtime=base + 500)
@@ -512,14 +703,30 @@ class HookBlackBoxTest(HookCase):
 
     def test_bad_json_half_line_and_bad_timestamp_do_not_hide_good_evidence(self):
         _, _, code, base = self.stop_fixture()
-        good = self.claude_call("Edit", {"file_path": str(code)},
-                                base + 200, base + 400)
-        malformed = {"type": "assistant", "timestamp": "not-a-date",
-                     "message": {"content": [{"type": "tool_use", "id": "bad",
-                                               "name": "Edit",
-                                               "input": {"file_path": str(code)}}]}}
-        self.transcript('{"tool_use":', malformed, good[0],
-                        '{"tool_result":{"tool_use_id":', good[1])
+        good = self.claude_call(
+            "Edit", {"file_path": str(code)}, base + 200, base + 400
+        )
+        malformed = {
+            "type": "assistant",
+            "timestamp": "not-a-date",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "bad",
+                        "name": "Edit",
+                        "input": {"file_path": str(code)},
+                    }
+                ]
+            },
+        }
+        self.transcript(
+            '{"tool_use":',
+            malformed,
+            good[0],
+            '{"tool_result":{"tool_use_id":',
+            good[1],
+        )
         self.assert_block(self.run_stop(), "active")
 
     def test_nine_digit_fraction_and_positive_offset_are_precise(self):
@@ -527,8 +734,9 @@ class HookBlackBoxTest(HookCase):
         start = base + 200
         end = base + 400
         self.set_mtime(code, end + 1_000_000)
-        call, result = self.claude_call("Bash", {"command": "cat > changed.py"},
-                                        start, end)
+        call, result = self.claude_call(
+            "Bash", {"command": "cat > changed.py"}, start, end
+        )
         call["timestamp"] = self.stamp(start, offset=11)
         result["timestamp"] = self.stamp(end, offset=11)
         self.transcript(call, result)
@@ -539,8 +747,9 @@ class HookBlackBoxTest(HookCase):
     def test_absent_marker_and_deleted_marker_do_not_affect_decision(self):
         _, _, code, base = self.stop_fixture()
         marker = self.root / ".scratch" / ".session"
-        self.transcript(*self.claude_call("Write", {"file_path": str(code)},
-                                           base + 200, base + 400))
+        self.transcript(
+            *self.claude_call("Write", {"file_path": str(code)}, base + 200, base + 400)
+        )
         self.assertFalse(marker.exists())
         self.assert_block(self.run_stop(), "active")
         marker.write_text("legacy", encoding="utf-8")

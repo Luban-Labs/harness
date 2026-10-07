@@ -13,11 +13,15 @@ READY_LIMIT = 5
 def task_scope(root, lines):
     if not lines or not lines[0].startswith("Scope:"):
         return None, None, lines
-    value = lines[0][len("Scope:"):].strip()
+    value = lines[0][len("Scope:") :].strip()
     trimmed = value.rstrip("/")
     parts = trimmed.split("/")
-    if (not trimmed or value.startswith("/") or "\\" in value
-            or any(part in ("", ".", "..") for part in parts)):
+    if (
+        not trimmed
+        or value.startswith("/")
+        or "\\" in value
+        or any(part in ("", ".", "..") for part in parts)
+    ):
         raise ValueError("invalid Scope")
     path = root.joinpath(*parts).resolve()
     path.relative_to(root)
@@ -38,15 +42,16 @@ def task_context(name, lines):
                 break
             if line:
                 progress = line
-    return (f"[harness] Task: {name}(.scratch/{name}/spec.md)\n"
-            f"状态: in-progress\n进展: {progress}")
+    return (
+        f"[harness] Task: {name}(.scratch/{name}/spec.md)\n"
+        f"状态: in-progress\n进展: {progress}"
+    )
 
 
 def ready_line(names):
     shown = ", ".join(names[:READY_LIMIT])
     more = f" 等 {len(names)} 个" if len(names) > READY_LIMIT else ""
-    return (f"[harness] 待开工 Task: {shown}{more};"
-            "需求相关时先读 .scratch/<名>/spec.md")
+    return f"[harness] 待开工 Task: {shown}{more};需求相关时先读 .scratch/<名>/spec.md"
 
 
 def main():
@@ -59,8 +64,7 @@ def main():
     cwd = Path(cwd).resolve()
     if not cwd.is_dir():
         return
-    root = next((p for p in (cwd, *cwd.parents)
-                 if (p / ".scratch").is_dir()), None)
+    root = next((p for p in (cwd, *cwd.parents) if (p / ".scratch").is_dir()), None)
     if root is None:
         return
     scratch = root / ".scratch"
@@ -82,7 +86,8 @@ def main():
             status = spec.readline().strip()
             if status == "Status: in-progress":
                 scope_name, scope_path, lines = task_scope(
-                    root, spec.read().splitlines())
+                    root, spec.read().splitlines()
+                )
                 tasks.append((task.name, scope_name, scope_path, lines))
             elif status == "Status: ready-for-agent":
                 if "\n" not in task.name and "\r" not in task.name:
@@ -105,9 +110,12 @@ def main():
         else:
             summary = ", ".join(
                 f"{name}(Scope: {scope or 'all-project'})"
-                for name, scope, _, _ in tasks)
-            context = (f"[harness] 有 {len(tasks)} 个 in-progress Task: {summary};"
-                       "进对应 Scope 的目录开会话可注入该 Task 的详情")
+                for name, scope, _, _ in tasks
+            )
+            context = (
+                f"[harness] 有 {len(tasks)} 个 in-progress Task: {summary};"
+                "进对应 Scope 的目录开会话可注入该 Task 的详情"
+            )
     elif tasks:
         name, _, _, lines = tasks[0]
         context = task_context(name, lines)
@@ -116,8 +124,12 @@ def main():
         context = f"{context}\n{line}" if context else line
     if context is None:
         return
-    return {"hookSpecificOutput": {
-        "hookEventName": "SessionStart", "additionalContext": context}}
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": context,
+        }
+    }
 
 
 if __name__ == "__main__":
