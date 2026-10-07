@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Inject the active Task summary; failures leave the session unblocked."""
+"""Inject the active Task summary and ready Task names; failures leave the session unblocked."""
 
 import json
 import os
 from pathlib import Path
 import sys
+
+
+READY_LIMIT = 5
 
 
 def task_scope(root, lines):
@@ -39,6 +42,13 @@ def task_context(name, lines):
             f"状态: in-progress\n进展: {progress}")
 
 
+def ready_line(names):
+    shown = ", ".join(names[:READY_LIMIT])
+    more = f" 等 {len(names)} 个" if len(names) > READY_LIMIT else ""
+    return (f"[harness] 待开工 Task: {shown}{more};"
+            "需求相关时先读 .scratch/<名>/spec.md")
+
+
 def main():
     payload = json.load(sys.stdin)
     if not isinstance(payload, dict):
@@ -57,6 +67,7 @@ def main():
     if scratch.is_symlink():
         return
     tasks = []
+    ready = []
     for task in sorted(scratch.iterdir()):
         if task.name == "archive" or not task.is_dir():
             continue
@@ -68,12 +79,17 @@ def main():
         if not spec_path.is_file():
             return
         with spec_path.open(encoding="utf-8") as spec:
-            if spec.readline().strip() == "Status: in-progress":
+            status = spec.readline().strip()
+            if status == "Status: in-progress":
                 scope_name, scope_path, lines = task_scope(
                     root, spec.read().splitlines())
                 tasks.append((task.name, scope_name, scope_path, lines))
-    if not tasks or any("\n" in task[0] or "\r" in task[0] for task in tasks):
+            elif status == "Status: ready-for-agent":
+                if "\n" not in task.name and "\r" not in task.name:
+                    ready.append(task.name)
+    if any("\n" in task[0] or "\r" in task[0] for task in tasks):
         return
+    context = None
     if len(tasks) > 1:
         matches = []
         for task in tasks:
@@ -92,9 +108,14 @@ def main():
                 for name, scope, _, _ in tasks)
             context = (f"[harness] 有 {len(tasks)} 个 in-progress Task: {summary};"
                        "进对应 Scope 的目录开会话可注入该 Task 的详情")
-    else:
+    elif tasks:
         name, _, _, lines = tasks[0]
         context = task_context(name, lines)
+    if ready:
+        line = ready_line(ready)
+        context = f"{context}\n{line}" if context else line
+    if context is None:
+        return
     return {"hookSpecificOutput": {
         "hookEventName": "SessionStart", "additionalContext": context}}
 

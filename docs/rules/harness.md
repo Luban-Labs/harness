@@ -1,6 +1,6 @@
 # Task 规则
 
-周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问,判大才建 Task)→ 建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`)→ 每轮停下前补一行进展(Stop hook 兜底)→ 收件两问 → 改 `done` 并归档。新会话由 SessionStart hook 注入当前 Task;没有活跃 Task 时什么都不注入。
+周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问,判大才建 Task)→ 建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`)→ 每轮停下前补一行进展(Stop hook 兜底)→ 收件两问 → 改 `done` 并归档。新会话由 SessionStart hook 注入当前 Task,并用一行列出 `ready-for-agent` 的 Task 名(最多 5 个,超出写总数);两者都没有时什么都不注入。
 
 - Task 目录为 `.scratch/<功能名>/`，`spec.md` 首行为 `Status: ready-for-agent`、`Status: in-progress` 或 `Status: done`。
 - 直接建 Task，不采访：owner 说「建个 Task」、要记一个 bug、或一个自己已确定但想留记录的小改动 → 直接建 `.scratch/<功能名>/spec.md`，首行 `Status: ready-for-agent`，正文只写目标一句与验收演示；owner 已有 spec 或 prd 就原样放进去补首行。需求还说不清的才走 interview-me。
