@@ -5,7 +5,7 @@
 装的东西:
   AGENTS.md(来自 templates/AGENTS.md;已有就保留,提示手动加路由行)+ CLAUDE.md 符号链接
   docs/rules/harness.md(复制)、docs/decisions.md(空账本)、.scratch/.gitkeep
-  两个 hook 脚本复制到 .claude/hooks/,.codex/hooks 做符号链接指过去
+  三个 hook 脚本(session_start.py、stop_guard.py、stop_evidence.py)复制到 .claude/hooks/,.codex/hooks 做符号链接指过去
   .claude/settings.json 与 .codex/hooks.json 追加 SessionStart / Stop 两条 hook,
   Claude 用 "$CLAUDE_PROJECT_DIR"/.claude/hooks/…,Codex 用 .codex/hooks/…(从项目根启动);已有配置只追加不改其他键
   .gitignore 追加 .scratch/.session
