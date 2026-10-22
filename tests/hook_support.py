@@ -19,6 +19,7 @@ class HookCase(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         (self.root / ".scratch").mkdir()
+        (self.root / ".git").mkdir()
 
     def tearDown(self):
         self.temp.cleanup()
@@ -28,6 +29,7 @@ class HookCase(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         (self.root / ".scratch").mkdir()
+        (self.root / ".git").mkdir()
 
     def run_hook(self, script, payload=None, *, cwd=None, raw=None):
         if raw is None:
@@ -136,11 +138,13 @@ class HookCase(unittest.TestCase):
         self.assertEqual(
             json.loads(output),
             {
-                "decision": "block",
-                "reason": (
-                    f"[harness] Task {task_name} 本轮有代码改动但进展未更新:"
-                    f"在 .scratch/{task_name}/spec.md 的 ## 进展 末尾追加一行"
-                    "(done / next / 别再试)再停。"
-                ),
+                "hookSpecificOutput": {
+                    "hookEventName": "Stop",
+                    "additionalContext": (
+                        f"[harness] Task {task_name} 本轮有代码改动但进展未更新:"
+                        f"在 .scratch/{task_name}/spec.md 的 ## 进展 末尾追加一行"
+                        "(done / next / 别再试)再停。"
+                    ),
+                },
             },
         )

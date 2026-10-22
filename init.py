@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 HARNESS = Path(__file__).resolve().parent
-HOOKS = ("session_start.py", "stop_guard.py")
+HOOKS = ("session_start.py", "stop_guard.py", "stop_evidence.py")
 SKILL = "interview-me"
 LEDGER = "# 决策账本\n\n给人看的。不进路由表、不进任何注入;只追加。每条:背景、决定、为什么。\n"
 GITIGNORE_LINE = ".scratch/.session"

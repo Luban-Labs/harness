@@ -239,19 +239,19 @@ class HookBlackBoxTest(HookCase):
                     scope = "escape/"
                 assert_invalid(scope, changed)
 
-    def test_stop_guard_any_spec_read_failure_releases_a_real_block(self):
+    def test_stop_guard_bad_spec_skips_only_that_task(self):
         self.named_edit()
         broken = self.root / ".scratch" / "broken"
         broken.mkdir()
         (broken / "spec.md").symlink_to("missing.md")
-        self.assertEqual(self.run_stop(), "")
+        self.assert_block(self.run_stop(), "active")
 
         self.reset_root()
         self.named_edit()
         invalid = self.root / ".scratch" / "invalid"
         invalid.mkdir()
         (invalid / "spec.md").write_bytes(b"Status: in-progress\n\xff")
-        self.assertEqual(self.run_stop(), "")
+        self.assert_block(self.run_stop(), "active")
 
     def test_stop_guard_excludes_named_directories_at_any_depth(self):
         transcript, spec, allowed, base = self.named_edit()
