@@ -1,10 +1,10 @@
 # Task 规则
 
-周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问,判大才建 Task)→ 建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件两问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID、本会话认领的 Task、「等你的事」、每个进行中 Task 一行、待开工 Task 名;没有 in-progress(含已 done 未归档)、ready-for-agent 与「等你的事」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,每个用户回合最多提醒一次。
+周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问)→ 按「何时建 Task」判,命中才建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件两问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID、本会话认领的 Task、「等你的事」、每个进行中 Task 一行、待开工 Task 名;没有 in-progress(含已 done 未归档)、ready-for-agent 与「等你的事」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,每个用户回合最多提醒一次。
 
 ## spec 格式
 
-- Task 目录为 `.scratch/<功能名>/`。`spec.md` 首行为 `Status: ready-for-agent`、`Status: in-progress` 或 `Status: done`;其后到第一个空行或 `#` 行为头部,每行 `键: 值`:`Scope:`、`Tickets:`、`会话:`,顺序不限。
+- Task 目录为 `.scratch/<功能名>/`。`spec.md` 首行为 `Status: ready-for-agent`、`Status: in-progress` 或 `Status: done`;其后到第一个空行或 `#` 行为头部,每行 `键: 值`:`建单:`、`Scope:`、`Tickets:`、`会话:`,顺序不限。
 - `## 验收` 段每项一个勾选框并标执行者:`- [ ] [我] …` 是执行者当场能演示并自验的,`- [ ] [你] …` 是只有 owner 能做或要 owner 看的;做完改 `[x]`。
 - 验收项要当场能演示。依赖自然发生的事(下一次真实上架、下一轮调价)时先自己造一个(预览批次、测试数据、手动触发一轮);造不出来的写成 `[你]` 项,写明届时看什么。有 ticket 的 Task 把「全部 ticket 关闭」写成一条 `[我]` 项。
 - 进展段只追加以下格式的行:`- MM-DD HH:MM done: … | next: <球>: … | 别再试: …`,时间用本机时间。球只有三种:
@@ -13,9 +13,20 @@
   - `你:` owner 本人才能做的动作,写到 owner 照着就能做。
   - owner 让停、或本轮在问别的事时写 `等: owner 下一步安排(回看: owner 下次开口)`,不占用 `你:`。
 
+## 何时建 Task
+
+- 只看三条,命中任一才建,并在头部写 `建单: <命中哪条>`:
+  1. owner 说建 Task、写 spec,或要把一件待办(bug、需求、小改动)记下来以后做。口语「给你个任务」「做吧」不算;要写进记忆或 `docs/rules/` 的不算。
+  2. 发现一个线上或 CI 的 bug,本会话不修。对抗审的 important、nit 照常写进交付说明,不算。
+  3. 停下时还有本会话等不到的事:等平台或自然事件,等 owner 做完一个动作(给凭据、页面批准)才能接着做,或要交给别的会话接手。本会话里等得到的 CI、上线、工人回包不算;只等 owner 回一句话或看一眼的不算。
+- 第 1、2 条在发生时判;第 3 条每次停下前判,命中就那时建,已做的写成第一行进展。
+- 都不中就不建,直接做,靠提交信息与回复留痕。改多少文件、跨不跨层、派不派工都不是建的理由;派工任务包放会话临时目录。
+- 同一件事已有 Task 就写进那个 Task,不另建;别的会话认领的按「开工与认领」处理。
+- 建不建由执行者按三条自己判:不在请示里问 owner,也不把「建 Task」写进请示的选项。
+- 建法:新建 `.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`,正文只写目标一句与 `## 验收` 勾选框;owner 已有 spec 或 prd 就原样放进去补首行、`建单:` 与验收段。需求还说不清的先走 interview-me,对齐后仍按三条判。
+
 ## 开工与认领
 
-- 直接建 Task,不采访:owner 说「建个 Task」、要记一个 bug、或一个自己已确定但想留记录的小改动 → 直接建 `.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`,正文只写目标一句与 `## 验收` 勾选框;owner 已有 spec 或 prd 就原样放进去补首行与验收段。需求还说不清的才走 interview-me。
 - 开工或接手时:首行改 `Status: in-progress`;头部写 `会话: <本会话 ID>`(以 SessionStart 注入的为准;Claude 没看到注入时读 `$CLAUDE_CODE_SESSION_ID`),已有就覆盖,一个 Task 只认最后写入的会话;验收段没有勾选框就先改写;末尾没有 `## 进展` 时建立空段,已有段不改。
 - 可以同时有多个 `in-progress` Task,各由认领它的会话负责。owner 让你做某个 Task,或看板上它是「待结案」且已搁 1 小时以上,就直接接手覆盖 `会话:`;其余情况下别的会话认领的 Task 不动。工人与子代理不认领、不写 spec,进展写进回报。
 - `Scope: <相对项目根的目录>` 只决定「改了代码却没补进展」兜底的走查范围;未写时按全项目。
@@ -50,7 +61,7 @@
 5. next 为 `等:` 却没写回看,且没有后台任务或定时 → 补回看。
 6. 没有进展行,或 next 没写球 → 补一行带球的进展。
 
-另有兜底:本轮改了代码却没补进展时提醒补一行。认领恰好一个 Task 时对它判;认领多个时不判;没认领时读 cwd 所在工作树自己的 `.scratch`,只在恰好一个 in-progress,或 cwd 恰好落在一个 Task 的 Scope 内时判。单个 spec 解析不了只跳过它,不影响别的 Task 与兜底。证据只认 mtime 晚于 spec、且有本会话或其子代理直接证据的候选文件:晚于 spec 的成功编辑结果或 Codex FileChange,以及 mtime 落在调用至最后结果加 1ms 窗口内的点名文件命令或指定 git 工作区修改命令。Scope 落在排除目录(如 `.scratch`)内、纯删除、未点名命令、后台进程、独立 Codex 子线程、只改 spec 正文或项目超过 20000 个文件可能漏过。两个 hook 不读写 `.scratch/.session`。
+另有兜底:本轮改了代码却没补进展时提醒补一行。认领恰好一个 Task 时对它判;认领多个时不判;没认领时读 cwd 所在工作树自己的 `.scratch`,只在恰好一个 in-progress,或 cwd 恰好落在一个 Task 的 Scope 内时判,选中的 Task 写了 `会话:` 就不提醒。单个 spec 解析不了只跳过它,不影响别的 Task 与兜底。证据只认 mtime 晚于 spec、且有本会话或其子代理直接证据的候选文件:晚于 spec 的成功编辑结果或 Codex FileChange,以及 mtime 落在调用至最后结果加 1ms 窗口内的点名文件命令或指定 git 工作区修改命令。Scope 落在排除目录(如 `.scratch`)内、纯删除、未点名命令、后台进程、独立 Codex 子线程、只改 spec 正文或项目超过 20000 个文件可能漏过。两个 hook 不读写 `.scratch/.session`。
 
 ## 安装与升级
 
@@ -67,4 +78,4 @@
 
 - Codex 在项目根 `.codex/hooks.json` 中按同一片段配置,command 改为 `python3 .codex/hooks/session_start.py` 与 `python3 .codex/hooks/stop_guard.py`(Codex 从项目根启动);Codex ≥0.153 从项目根到当前目录加载它。
 - Codex 的 hook 必须先被信任才会执行:init 装完会打印两条 `[hooks.state."<路径>:<事件>:0:0"]` 信任条目,追加到 `~/.codex/config.toml` 即可(信任按 hook 定义哈希:改脚本内容不用重信,改 command 或 timeout 要重信);也可在项目目录进 `codex` 跑一次 `/hooks`。仅做验证时可临时加 `--dangerously-bypass-hook-trust`,不得写进持久配置。
-- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py` 和 `docs/rules/harness.md`;init 会将这四个文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/templates/spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 解析与 stop_evidence.py 的记录取证,三个脚本要同版本。
+- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py` 和 `docs/rules/harness.md`;init 会将这四个文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/SKILL.md`、`templates/spec.md`、`references/to-spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 解析与 stop_evidence.py 的记录取证,三个脚本要同版本。

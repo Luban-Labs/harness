@@ -125,7 +125,7 @@ def read_tasks(root, read_task):
     return tasks
 
 
-def legacy_reminder(payload, root, cwd, tasks):
+def legacy_reminder(payload, root, cwd, tasks, foreign=()):
     """Keep the existing code-change evidence and Scope selection behavior."""
     from stop_evidence import transcript_evidence
 
@@ -145,6 +145,8 @@ def legacy_reminder(payload, root, cwd, tasks):
         if len(matches) != 1:
             return
         spec, scope = matches[0]
+    if spec in foreign:
+        return
     name = spec.parent.name
     if "\n" in name or "\r" in name:
         return
@@ -242,6 +244,8 @@ def main():
             return
         local_tasks = read_tasks(scan_root, read_task)
         selected = [task for task in local_tasks if task["status"] == "in-progress"]
+    # A Task claimed by another session is not this session's to record.
+    foreign = {task["spec"] for task in selected if not claimed and task["session"]}
     fallback = []
     if scan_root is not None and not (scan_root / ".scratch").is_symlink():
         for task in selected:
@@ -252,7 +256,7 @@ def main():
                 else None
             )
             fallback.append((task["spec"], scope))
-    message = legacy_reminder(payload, scan_root, cwd, fallback)
+    message = legacy_reminder(payload, scan_root, cwd, fallback, foreign)
     if message:
         return output_message(message, "turn_id" in payload)
 

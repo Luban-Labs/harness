@@ -4,6 +4,7 @@
 
 ```md
 Status: ready-for-agent
+建单: <命中 docs/rules/harness.md「何时建 Task」哪条>
 
 ## Problem Statement(问题陈述)
 

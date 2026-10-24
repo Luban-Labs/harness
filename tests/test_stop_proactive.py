@@ -377,6 +377,45 @@ class StopProactiveTest(HookCase):
             json.loads(self.output(session="unowned", cwd=src, transcript_path=str(transcript)))["hookSpecificOutput"]["additionalContext"],
         )
 
+    def test_unowned_fallback_skips_task_claimed_by_another_session(self):
+        spec = self.task(
+            session="other-session-id",
+            checks=["- [ ] [我] test"],
+            progress=["- 10-22 09:00 done: x | next: 你: approve"],
+        )
+        code = self.root / "changed.py"
+        code.write_text("x", encoding="utf-8")
+        base = 1_900_000_000_000_000_000
+        self.set_mtime(spec, base + 100)
+        self.set_mtime(code, base + 300)
+        transcript = self.transcript(
+            *self.claude_call("Edit", {"file_path": str(code)}, base + 200, base + 400)
+        )
+        payload = {"session": "no-task-session", "transcript_path": str(transcript)}
+        self.assertEqual(self.output(**payload), "")
+        self.task(checks=["- [ ] [我] test"], progress=["- 10-22 09:00 done: x | next: 你: approve"])
+        self.set_mtime(spec, base + 100)
+        self.assertIn(
+            "Task active 本轮有代码改动",
+            json.loads(self.output(**payload))["hookSpecificOutput"]["additionalContext"],
+        )
+
+    def test_unowned_fallback_with_claimed_and_legacy_tasks_stays_silent(self):
+        claimed = self.task(name="a-claimed", session="other-session-id", checks=["- [ ] [我] test"])
+        legacy = self.task(name="b-legacy", checks=["- [ ] [我] test"])
+        code = self.root / "changed.py"
+        code.write_text("x", encoding="utf-8")
+        base = 1_900_000_000_000_000_000
+        self.set_mtime(claimed, base + 100)
+        self.set_mtime(legacy, base + 100)
+        self.set_mtime(code, base + 300)
+        transcript = self.transcript(
+            *self.claude_call("Edit", {"file_path": str(code)}, base + 200, base + 400)
+        )
+        self.assertEqual(
+            self.output(session="no-task-session", transcript_path=str(transcript)), ""
+        )
+
     def test_worktree_reads_main_task_but_fallback_scans_linked_tree(self):
         main = self.root
         linked = self.linked_root()
