@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import re
 import sys
+import tempfile
 
 
 READY_LIMIT = 5
@@ -113,7 +114,7 @@ def read_task(spec, root):
             section = ""
         elif section == "checks":
             match = CHECK.fullmatch(line)
-            if match:
+            if match and not (match.group(3).strip().startswith("<") and match.group(3).strip().endswith(">")):
                 checks.append((match.group(1).lower() == "x", match.group(2), match.group(3).strip()))
         elif section == "progress" and line.strip():
             progress = line.strip()
@@ -209,7 +210,7 @@ def board(root, session_id="", include_session=True):
         return ""
     lines = []
     if include_session and session_id:
-        lines.append(f"[harness] 本会话 ID: {session_id};开工或接手 Task 时写进它 spec 头部「会话:」行")
+        lines.append(f"[harness] 本会话 ID: {session_id};开工或接手 Task 时写进它 spec 头部「会话:」行;建 Task 用 python3 .claude/hooks/session_start.py --new-task <名> --kind 功能|记录")
         for task in active:
             if task["status"] == "in-progress" and session_matches(task["session"], session_id):
                 lines.append(f"[harness] 本会话认领: {task['name']}(.scratch/{task['name']}/spec.md) 最近进展: {task['progress'] or '无进展'}")
@@ -238,6 +239,74 @@ def board(root, session_id="", include_session=True):
         more = f" 等 {len(ready)} 个" if len(ready) > READY_LIMIT else ""
         lines.append(f"[harness] 待开工 Task: {shown}{more};需求相关时先读 .scratch/<名>/spec.md")
     return "\n".join(lines)
+
+
+def template_skeleton(root):
+    """Read the first Markdown code block of the project's sole spec template."""
+    template = root / ".agents/skills/interview-me/templates/spec.md"
+    if not template.is_file():
+        raise ValueError("模板文件缺失")
+    lines = template.read_text(encoding="utf-8").splitlines()
+    start = next((i for i, line in enumerate(lines) if line.strip() == "```md"), None)
+    if start is None:
+        raise ValueError("模板没有 ```md 骨架")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].strip() == "```"), None)
+    if end is None:
+        raise ValueError("模板没有完整的 ```md 骨架")
+    return lines[start + 1:end]
+
+
+def new_task(args):
+    if (len(args) not in (4, 6) or args[0] != "--new-task" or args[2] != "--kind"
+            or (len(args) == 6 and args[4] != "--cwd")):
+        raise ValueError("参数格式应为 --new-task <名> --kind 功能|记录 [--cwd <目录>]")
+    name, kind = args[1], args[3]
+    if not name or any(char in name for char in "/\\\n\r") or name.startswith(".") or name == "archive":
+        raise ValueError("Task 名不合法")
+    if kind not in ("功能", "记录"):
+        raise ValueError("类型只能是 功能 或 记录")
+    cwd = Path(args[5] if len(args) == 6 else os.getcwd())
+    if not cwd.is_dir():
+        raise ValueError("目录不存在")
+    _, root = project_roots(cwd)
+    if root is None:
+        raise ValueError("找不到 Task 主工作树")
+    skeleton = template_skeleton(root)
+    sections = []
+    current = []
+    for line in skeleton:
+        if line.startswith("## "):
+            sections.append(current)
+            current = []
+        current.append(line)
+    sections.append(current)
+    lines = [line for section in sections
+             if kind == "功能" or not any(item.strip() == "<!-- 记录可省 -->" for item in section)
+             for line in section if line.strip() != "<!-- 记录可省 -->"]
+    lines = [f"类型: {kind}" if line == "类型: <功能|记录>" else
+             f"# {name}" if line == "# <功能名>" else line for line in lines]
+    compact = []
+    for line in lines:
+        if line or (compact and compact[-1]):
+            compact.append(line)
+    content = "\n".join(compact).rstrip() + "\n"
+    folder = root / ".scratch" / name
+    try:
+        folder.mkdir()
+    except FileExistsError as error:
+        raise ValueError("Task 目录已存在") from error
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=folder, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+        os.replace(temporary, folder / "spec.md")
+    except Exception:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        folder.rmdir()
+        raise
+    return folder / "spec.md"
 
 
 def main():
@@ -273,6 +342,14 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] and (sys.argv[1] != "--board" or "--new-task" in sys.argv[2:]):
+        try:
+            path = new_task(sys.argv[1:])
+            print(f"{path} 按模板逐节填写;必填节没内容写「无」")
+        except Exception as error:
+            print(f"[harness] 建 Task 失败: {error}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
     try:
         result = main()
         if result is not None:

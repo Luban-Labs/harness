@@ -130,7 +130,7 @@ class StopProactiveTest(HookCase):
         )
         self.assert_reminder(
             self.output(session=self.SESSION),
-            "[harness] Task active 的 [我] 验收项已全部勾上:现在做收件两问,改 Status: done 并归档;没勾的 [你] 项留在 spec 里,看板会继续列给 owner。",
+            "[harness] Task active 的 [我] 验收项已全部勾上:现在做收件三问,改 Status: done 并归档;没勾的 [你] 项留在 spec 里,看板会继续列给 owner。",
         )
         self.assertEqual(self.output(session="different-session"), "")
         self.assertEqual(self.output(session=self.SESSION[:7]), "")
@@ -145,7 +145,7 @@ class StopProactiveTest(HookCase):
         )
         message = (
             "[harness] Task active 的 next 是你自己的事(finish implementation):接着做,"
-            "做完勾上对应的验收项;[我] 项全勾就直接收件两问、改 done、归档,不要把核验或关闭写成「你:」。"
+            "做完勾上对应的验收项;[我] 项全勾就直接收件三问、改 done、归档,不要把核验或关闭写成「你:」。"
             "做不了就先追加一行进展,把 next 改成「你: <owner 要做的具体动作>」或"
             "「等: <在等什么>(回看: <几点、由谁、怎么看>)」再停;owner 让停或本轮在问别的事时写「等: owner 下一步安排(回看: owner 下次开口)」。"
         )

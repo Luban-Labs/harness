@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import sys
 
@@ -70,7 +71,7 @@ def reminder(task, busy):
     mine = [check for check in checks if check[1] == "我"]
     if mine and all(check[0] for check in mine):
         return (
-            f"[harness] Task {name} 的 [我] 验收项已全部勾上:现在做收件两问,"
+            f"[harness] Task {name} 的 [我] 验收项已全部勾上:现在做收件三问,"
             "改 Status: done 并归档;没勾的 [你] 项留在 spec 里,看板会继续列给 owner。"
         )
     ball = task["ball"]
@@ -78,7 +79,7 @@ def reminder(task, busy):
     if ball == "我" and not busy:
         return (
             f"[harness] Task {name} 的 next 是你自己的事({next_text[:60]}):接着做,"
-            "做完勾上对应的验收项;[我] 项全勾就直接收件两问、改 done、归档,不要把核验或关闭写成「你:」。"
+            "做完勾上对应的验收项;[我] 项全勾就直接收件三问、改 done、归档,不要把核验或关闭写成「你:」。"
             "做不了就先追加一行进展,把 next 改成「你: <owner 要做的具体动作>」或"
             "「等: <在等什么>(回看: <几点、由谁、怎么看>)」再停;owner 让停或本轮在问别的事时写「等: owner 下一步安排(回看: owner 下次开口)」。"
         )
@@ -123,6 +124,101 @@ def read_tasks(root, read_task):
             continue
         tasks.append(task)
     return tasks
+
+
+def spec_kind(lines):
+    """Return the 类型 header value, or "" for a spec that predates the template."""
+    for line in lines[1:]:
+        if not line.strip() or line.startswith("#"):
+            break
+        match = re.match(r"^类型[：:]\s*(.*)$", line)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def spec_reminder(task, root, skeleton):
+    """Collect all template violations for one parseable Task."""
+    lines = task["spec"].read_text(encoding="utf-8").splitlines()
+    sections = [(i, line[3:].strip()) for i, line in enumerate(lines) if line.startswith("## ")]
+    progress = []
+    for index, (start, title) in enumerate(sections):
+        if title.startswith("进展"):
+            end = sections[index + 1][0] if index + 1 < len(sections) else len(lines)
+            progress = [line for line in lines[start + 1:end] if line.strip()]
+            break
+    problems = []
+    if skeleton is not None:
+        names = []
+        optional = set()
+        record_skips = set()
+        for line in skeleton:
+            if line.startswith("## "):
+                names.append(line[3:].strip())
+            elif names and line.strip() == "<!-- 记录可省 -->":
+                record_skips.add(names[-1])
+            elif names and line.strip().startswith("<选填"):
+                optional.add(names[-1])
+        kind = spec_kind(lines)
+        required = [name for name in names if name not in (optional if kind == "功能" else record_skips)]
+        missing = [name for name in required
+                   if not any(title.startswith(name) for _, title in sections)]
+        first_section = sections[0][0] if sections else len(lines)
+        if not any(re.match(r"^目标[：:]", line) for line in lines[:first_section]):
+            missing.insert(0, "目标")
+        if missing:
+            problems.append("缺必填节: " + "、".join(missing))
+        extra = [title for _, title in sections if not any(title.startswith(name) for name in names)]
+        if extra:
+            problems.append("骨架以外的节: " + "、".join(extra))
+        placeholders = {line.strip() for line in skeleton if re.search(r"<[^<>]+>", line)}
+        if any(line.strip() in placeholders for line in lines):
+            problems.append("还留着骨架占位行")
+    if progress and len(progress[-1]) > 200:
+        problems.append("进展最后一行超过 200 字")
+    if sum(bool(re.match(r"^- \d{2}-\d{2}", line)) for line in progress) > 30:
+        problems.append("进展超过 30 行")
+    scope = task["scope"]
+    if scope is not None and scope.is_relative_to(root / ".scratch"):
+        problems.append("Scope 落在 .scratch 内")
+    if problems:
+        return (f"[harness] Task {task['name']} 的 spec 不合模板:"
+                + ";".join(problems)
+                + "。照 .agents/skills/interview-me/templates/spec.md 改好再停。")
+
+
+def written_specs(payload, tasks, claimed):
+    """List unclaimed template specs this session may have edited, using cheap checks only."""
+    transcript = payload.get("transcript_path")
+    if not isinstance(transcript, str) or not transcript or not Path(transcript).is_file():
+        return []
+    born = getattr(Path(transcript).stat(), "st_birthtime", None)
+    owned = {task["spec"] for task in claimed}
+    result = []
+    for task in tasks:
+        spec = task["spec"]
+        if spec in owned or task["session"]:
+            continue
+        if not spec_kind(spec.read_text(encoding="utf-8").splitlines()):
+            continue
+        # A spec untouched since this transcript began cannot carry this session's edits.
+        if born is not None and spec.stat().st_mtime < born:
+            continue
+        result.append(task)
+    return result
+
+
+def edited_by_session(payload, spec):
+    """Scan this session's transcripts for a direct edit of one spec."""
+    from stop_evidence import transcript_evidence
+
+    transcript = Path(payload["transcript_path"])
+    sources = [transcript]
+    subagents = transcript.with_suffix("") / "subagents"
+    if subagents.is_dir():
+        sources.extend(subagents.rglob("*.jsonl"))
+    candidates = {spec.resolve(): spec.stat().st_mtime_ns}
+    return any(transcript_evidence(source, 0, candidates) for source in sources)
 
 
 def legacy_reminder(payload, root, cwd, tasks, foreign=()):
@@ -210,7 +306,7 @@ def main():
     if not cwd.is_dir():
         return
     # Import inside main so a missing or broken sibling hook also fails open.
-    from session_start import project_roots, read_task, session_matches
+    from session_start import project_roots, read_task, session_matches, template_skeleton
 
     scan_root, task_root = project_roots(cwd)
     if task_root is None:
@@ -231,7 +327,20 @@ def main():
         else []
     )
     busy = bool(payload.get("background_tasks") or payload.get("session_crons"))
-    messages = [message for task in claimed if (message := reminder(task, busy))]
+    try:
+        skeleton = template_skeleton(task_root)
+    except (OSError, UnicodeError, ValueError):
+        skeleton = None
+    messages = []
+    for task in claimed:
+        message = reminder(task, busy) or spec_reminder(task, task_root, skeleton)
+        if message:
+            messages.append(message)
+    for task in written_specs(payload, tasks, claimed):
+        message = spec_reminder(task, task_root, skeleton)
+        # Transcripts run to hundreds of MB, so only a failing spec pays for the scan.
+        if message and edited_by_session(payload, task["spec"]):
+            messages.append(message)
     if messages:
         return output_message("\n".join(messages), "turn_id" in payload)
 
