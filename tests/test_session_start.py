@@ -24,7 +24,7 @@ class SessionStartTest(HookCase):
         result = subprocess.run(
             [sys.executable, str(SESSION_START), "--board", "--cwd", str(cwd or self.root)],
             input="", text=True, capture_output=True, cwd=self.root, timeout=60,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            env={**os.environ, "HOME": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"},
         )
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         return result.stdout

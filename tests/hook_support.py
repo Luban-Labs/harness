@@ -18,6 +18,8 @@ class HookCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        self.home = self.root / "home"
+        self.home.mkdir()
         (self.root / ".scratch").mkdir()
         (self.root / ".git").mkdir()
 
@@ -28,6 +30,8 @@ class HookCase(unittest.TestCase):
         self.temp.cleanup()
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        self.home = self.root / "home"
+        self.home.mkdir()
         (self.root / ".scratch").mkdir()
         (self.root / ".git").mkdir()
 
@@ -41,7 +45,7 @@ class HookCase(unittest.TestCase):
             capture_output=True,
             cwd=str(self.root if cwd is None else cwd),
             timeout=60,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            env={**os.environ, "HOME": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
