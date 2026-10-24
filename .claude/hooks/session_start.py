@@ -22,6 +22,7 @@ CHECK = re.compile(r"^\s*-\s*\[([ xX])\]\s*\[(我|你)\]\s*(.*)$")
 NEXT = re.compile(r"(?:^|\|)\s*next[：:]\s*([^|]*)")
 BALL = re.compile(r"^(我|你|等)\s*[：:]\s*(.*)$")
 STAMP = re.compile(r"^\s*-\s*(\d{2})-(\d{2})\s+(\d{2}):(\d{2})\b")
+CORE_TABLE = "docs/rules/core-judgments.md"
 
 
 def project_roots(cwd):
@@ -131,11 +132,34 @@ def read_task(spec, root):
         next_text = ball_match.group(2).strip()
     return {
         "name": spec.parent.name, "status": status, "session": fields.get("会话", ""),
+        "kind": fields.get("类型", ""),
         "scope": scope, "scope_value": scope_value, "progress": progress,
         "takeovers": takeovers,
         "ball": ball, "next": next_text, "checks": checks,
         "spec": spec, "mtime_ns": spec.stat().st_mtime_ns,
     }
+
+
+def task_at(folder, root):
+    """Return the Task a .scratch folder holds, or None when the folder is not a Task."""
+    if not folder.is_dir() or folder.is_symlink():
+        return None
+    try:
+        task = read_task(folder / "spec.md", root)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if "\n" in task["name"] or "\r" in task["name"]:
+        return None
+    return task
+
+
+def read_tasks(root):
+    """Return the Tasks directly under .scratch (not archived), by folder name."""
+    scratch = Path(root) / ".scratch"
+    if scratch.is_symlink() or not scratch.is_dir():
+        return []
+    return [task for folder in sorted(scratch.iterdir())
+            if folder.name != "archive" and (task := task_at(folder, root)) is not None]
 
 
 def session_matches(value, session_id):
@@ -174,15 +198,7 @@ def load_tasks(root):
     if scratch.is_symlink() or not scratch.is_dir():
         return [], [], []
     active, ready, archived = [], [], []
-    for path in sorted(scratch.iterdir()):
-        if path.name == "archive" or not path.is_dir() or path.is_symlink():
-            continue
-        try:
-            task = read_task(path / "spec.md", root)
-        except (OSError, UnicodeError, ValueError):
-            continue
-        if "\n" in task["name"] or "\r" in task["name"]:
-            continue
+    for task in read_tasks(root):
         if task["status"] == "ready-for-agent":
             ready.append(task["name"])
         else:
@@ -196,13 +212,28 @@ def load_tasks(root):
             scanned += 1
             if scanned > ARCHIVE_LIMIT:
                 break
-            try:
-                task = read_task(path / "spec.md", root)
-            except (OSError, UnicodeError, ValueError):
-                continue
-            if "\n" not in task["name"] and "\r" not in task["name"]:
+            task = task_at(path, root)
+            if task is not None:
                 archived.append(task)
     return active, ready, archived
+
+
+def core_judgments(root):
+    """Name the concepts in the project's core-judgment table; "" when it is missing or lists none."""
+    try:
+        lines = (Path(root) / CORE_TABLE).read_text(encoding="utf-8").splitlines()
+        names = []
+        fenced = False
+        for line in lines:
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+            elif not fenced and line.startswith("## ") and line[3:].strip():
+                names.append(line[3:].strip())
+    except Exception:
+        return ""
+    if not names:
+        return ""
+    return f"[harness] 核心判断表 {CORE_TABLE}:{'、'.join(names)};新写或改判断前先查表"
 
 
 def record_stamp(claim, kind, probe):
@@ -472,6 +503,10 @@ def main():
         return
     context = board(root, session_id)
     if context:
+        # Only an already non-empty board carries the concept line: no Task, no bytes.
+        concepts = core_judgments(root)
+        if concepts:
+            context += "\n" + concepts
         return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}}
 
 

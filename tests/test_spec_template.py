@@ -336,3 +336,39 @@ class SpecTemplateTest(HookCase):
         message = self.message(transcript_path=str(editing))
         self.assertIn("Task second 的 spec 不合模板", message)
         self.assertNotIn("Task first", message)
+
+    def test_spaced_type_header_is_read_the_same_by_parser_and_stop(self):
+        spec = self.ready_spec(kind="功能")
+        text = spec.read_text(encoding="utf-8").replace("类型: 功能", "类型 : 功能")
+        spec.write_text(text.replace("## 解法\n\n已填\n\n", ""), encoding="utf-8")
+        from importlib.util import module_from_spec, spec_from_file_location
+        module_spec = spec_from_file_location("session_start_for_kind", SESSION_START)
+        module = module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        self.assertEqual(module.read_task(spec, self.root)["kind"], "功能")
+        self.assertIn("缺必填节: 解法", self.message())
+
+    def test_unclaimed_spec_with_spaced_type_header_is_checked_when_edited(self):
+        spec = self.ready_spec(session="")
+        text = spec.read_text(encoding="utf-8").replace("会话: \n", "").replace("类型: 功能", "类型 : 功能")
+        spec.write_text(text.replace("## 解法\n\n已填\n\n", ""), encoding="utf-8")
+        base = 1_900_000_000_000_000_000
+        self.set_mtime(spec, base + 300)
+        transcript = self.transcript(*self.claude_call(
+            "Edit", {"file_path": str(spec)}, base + 200, base + 400))
+        self.assertIn("缺必填节: 解法", self.message(transcript_path=str(transcript)))
+
+    def test_new_judgment_line_is_a_placeholder_in_both_kinds(self):
+        line = next(item for item in TEMPLATE.read_text(encoding="utf-8").splitlines()
+                    if item.startswith("- 新写或改的判断:"))
+        for kind in ("功能", "记录"):
+            with self.subTest(kind=kind):
+                self.reset_root()
+                self.assertIn(line, self.create(kind, kind).read_text(encoding="utf-8"))
+                spec = self.ready_spec(kind=kind)
+                text = spec.read_text(encoding="utf-8")
+                self.assertEqual(self.message(), "")
+                section = re.search(r"## 影响面\n\n.*?\n\n(?=## )", text, flags=re.S).group(0)
+                spec.write_text(text.replace(section, section.rstrip("\n") + "\n" + line + "\n\n"),
+                                encoding="utf-8")
+                self.assertIn("还留着骨架占位行", self.message())

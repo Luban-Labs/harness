@@ -820,16 +820,23 @@ def _plan_install(plan):
     for src, rel in expected_files:
         if plan._safe_parents(plan.root / rel):
             base.copy(src, rel.as_posix())
-    decisions = plan.root / "docs/decisions.md"
-    scratch_keep = plan.root / ".scratch/.gitkeep"
-    for path in (decisions, scratch_keep):
+    created = {
+        plan.root / "docs/decisions.md": init.LEDGER,
+        plan.root / ".scratch/.gitkeep": "",
+    }
+    # The routing table copied from templates/AGENTS.md points at this file.
+    try:
+        created[plan.root / init.CORE_JUDGMENTS] = init.empty_core_judgments()
+    except (OSError, UnicodeError, ValueError) as exc:
+        plan.conflict(f"无法从 templates/core-judgments.md 读取空表: {exc}")
+    for path, content in created.items():
         if not plan._safe_parents(path):
             continue
         if path.is_symlink() or (path.exists() and not path.is_file()):
             plan.conflict(f"安装目标类型冲突: {plan._relative(path)}")
         else:
             rel = path.relative_to(plan.root).as_posix()
-            base.write_if_missing(rel, init.LEDGER if path == decisions else "")
+            base.write_if_missing(rel, content)
     skill = plan.root / ".agents/skills/interview-me"
     if plan._safe_parents(skill):
         base.copytree(HARNESS / ".agents/skills/interview-me", ".agents/skills/interview-me")

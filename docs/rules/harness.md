@@ -1,6 +1,6 @@
 # Task 规则
 
-周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问)→ 按「何时建 Task」判,命中才建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 动手前清点影响面 → 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件三问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID 与建 Task 命令、本会话认领的 Task、被别人接手的提示、「等你的事」、每个进行中 Task 一行(含认领会话在做、挂着还是断了)、待开工 Task 名;没有 in-progress(含已 done 未归档)、ready-for-agent 与「等你的事」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,对它们和本会话写过的 spec 查格式,每个用户回合最多提醒一次。
+周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问)→ 按「何时建 Task」判,命中才建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 动手前清点影响面(新写或改判断先查核心判断表)→ 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件三问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID 与建 Task 命令、本会话认领的 Task、被别人接手的提示、「等你的事」、每个进行中 Task 一行(含认领会话在做、挂着还是断了)、待开工 Task 名,核心判断表有概念时末尾附一行概念清单;没有 in-progress(含已 done 未归档)、ready-for-agent 与「等你的事」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,对它们和本会话写过的 spec 查格式,每个用户回合最多提醒一次。
 
 ## spec 格式
 
@@ -57,6 +57,14 @@
 - 建单时还没定改法的(记下以后做的 bug、待办),`## 影响面` 写「开工前清点」,开工的会话动手前补上。
 - 旧 spec 没有 `## 影响面`,被 Stop 提示缺节时补上:还没动手的照本节查;做到一半的,已完成的部分写「建单时未清点」,还没做的步骤动手前照本节查并逐项写上;全部做完、当时没查的写「无(建单时未清点)」。收件时没做的步骤不能只留「建单时未清点」。
 
+## 核心判断只写一份
+
+- 核心判断:被两处以上用来做决定的「是不是同一个 X」或「把 X 归一成可比的键」。项目在 docs/rules/core-judgments.md 维护一张表,每个概念一节:一句定义、唯一实现、语义例外、待收口的副本。概念名沿用 CONTEXT.md 的词,没有就补。
+- 新写或改一个判断前:先查表,再按概念(同义词、涉及的字段、被比较的值,不只函数名)全库找同类写法。有就调用它,不另写。
+- 现成的有毛病:修现成那一份,修它算本次改动,按「改动的影响面」清点它的使用方。这次修不了,在表里记成待收口、在影响面写成已知差异;不在自己模块另写一份绕过去。
+- 使用方要的意思本来就不同(例如比价要不要把相邻区当同区):在表里写明例外和理由,另起名字,不复用原名。
+- 一个判断出现第二个使用方时登记进表。文档或注释里写着「这里另用一套」的,是待收口项,登记进表,不当成事实记录。
+
 ## 推进与请示
 
 - `你:` 只写 owner 本人才能做的:付款、粘贴或授予凭据、页面上的批准、上线与推送的确认、业务取舍。能自己查、自己验、自己做的写 `我:`。
@@ -72,6 +80,7 @@
 - 收件时逐行检查根 `AGENTS.md` 路由表登记的文档,并对每项回答“已更新”或“不受影响”。
 - 回答“已更新”时必须真实修改对应文档。
 - 第一问同时逐项核对 spec 的 `## 影响面`:「跟改」的已真改,「不受影响」的理由仍成立,「已知差异」已记在写明的地方,不再留「开工前清点」。
+- 第一问还要答:本 Task 新写或改过的核心判断,docs/rules/core-judgments.md 是否已同步(新登记、实现位置、待收口)。
 - 收件第二问回答“是否有需沉淀的规则”;需要沉淀时写入 `docs/rules/<主题>.md`,新增主题时在根 `AGENTS.md` 路由表增加一行。
 - 收件第三问回答“正文和最终状态一致吗”:目标、不做、实现决策、验收与实际做成的一致,过时的已删;不一致先改正文。
 - 有 ticket 的 Task(头部有 `Tickets:` 行):做完一张就关一张(GitHub 关 issue,本地改该文件 `Status: done`)并同时写一行进展;正在做哪张只写在进展行。
@@ -108,4 +117,5 @@
 
 - Codex 在项目根 `.codex/hooks.json` 中按同一片段配置,command 改为 `python3 .codex/hooks/session_start.py` 与 `python3 .codex/hooks/stop_guard.py`(Codex 从项目根启动);Codex ≥0.153 从项目根到当前目录加载它。
 - Codex 的 hook 必须先被信任才会执行:init 装完会打印两条 `[hooks.state."<路径>:<事件>:0:0"]` 信任条目,追加到 `~/.codex/config.toml` 即可(信任按 hook 定义哈希:改脚本内容不用重信,改 command 或 timeout 要重信);也可在项目目录进 `codex` 跑一次 `/hooks`。仅做验证时可临时加 `--dangerously-bypass-hook-trust`,不得写进持久配置。
-- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py` 和 `docs/rules/harness.md`;init 会将这四个文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/SKILL.md`、`templates/spec.md`、`references/to-spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 解析与 stop_evidence.py 的记录取证,三个脚本要同版本。项目里改过的文件不整篇覆盖:先 diff,只合入上游的改动,保留项目自己的行。
+- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py` 和 `docs/rules/harness.md`;init 会将这四个文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/SKILL.md`、`templates/spec.md`、`references/to-spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 解析(含 Task 目录、Scope 与类型)与 stop_evidence.py 的记录取证,三个脚本要同版本。项目里改过的文件不整篇覆盖:先 diff,只合入上游的改动,保留项目自己的行。
+- `docs/rules/core-judgments.md` 归项目所有:init 与迁移在没有时建空表,有了不动,升级不覆盖。
