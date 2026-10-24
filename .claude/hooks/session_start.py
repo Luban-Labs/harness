@@ -23,6 +23,7 @@ CHECK = re.compile(r"^\s*-\s*\[([ xX])\]\s*\[(我|你)\]\s*(.*)$")
 NEXT = re.compile(r"(?:^|\|)\s*next[：:]\s*([^|]*)")
 BALL = re.compile(r"^(我|你|等)\s*[：:]\s*(.*)$")
 STAMP = re.compile(r"^\s*-\s*(\d{2})-(\d{2})\s+(\d{2}):(\d{2})\b")
+FENCE = re.compile(r"\s*(`{3,}|~{3,})")
 CORE_TABLE = "docs/rules/core-judgments.md"
 
 
@@ -242,11 +243,17 @@ def core_judgments(root):
     try:
         lines = (Path(root) / CORE_TABLE).read_text(encoding="utf-8").splitlines()
         names = []
-        fenced = False
+        fence = ""
         for line in lines:
-            if line.lstrip().startswith("```"):
-                fenced = not fenced
-            elif not fenced and line.startswith("## ") and line[3:].strip():
+            match = FENCE.match(line)
+            if fence:
+                # Only a run of the same character, at least as long, closes the open fence.
+                if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) \
+                        and not line.strip().strip(fence[0]):
+                    fence = ""
+            elif match:
+                fence = match.group(1)
+            elif line.startswith("## ") and line[3:].strip():
                 names.append(line[3:].strip())
     except Exception:
         return ""

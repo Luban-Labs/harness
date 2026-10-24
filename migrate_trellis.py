@@ -273,6 +273,31 @@ def _routing_table():
     return lines[heading] + "\n\n" + "\n".join(table) + "\n"
 
 
+def _route_target(row):
+    """Return the 读 cell of a Markdown table row."""
+    cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+    return cells[-1]
+
+
+def _missing_routes(text, routing_table):
+    """Return (insert line index, fixed rows) the first 路由表 of text lacks, matched by the 读 cell."""
+    table = [line for line in routing_table.splitlines() if line.startswith("|")]
+    lines = text.split("\n")
+    heading = next((i for i, line in enumerate(lines) if re.fullmatch(r"#{1,6}\s+路由表\s*", line)), None)
+    if heading is None:
+        return 0, []
+    start = heading + 1
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    end = start
+    while end < len(lines) and lines[end].startswith("|"):
+        end += 1
+    if end == start:
+        return heading + 1, ["", *table, ""]
+    present = {_route_target(line) for line in lines[start:end]}
+    return end, [row for row in table[2:] if _route_target(row) not in present]
+
+
 def _walk(root):
     """Return physical directories and files without following symlinks."""
     directories, files, links, forbidden = [], [], [], []
@@ -727,6 +752,11 @@ def _transform_agents(text, plan, routing_table):
             text = ""
     if not re.search(r"^#{1,6}\s+路由表\s*$", text, re.M):
         text = text.rstrip() + ("\n\n" if text.strip() else "") + routing_table
+    else:
+        index, rows = _missing_routes(text, routing_table)
+        if rows:
+            lines = text.split("\n")
+            text = "\n".join(lines[:index] + rows + lines[index:])
     if text and not text.endswith("\n"):
         text += "\n"
     return text
@@ -925,9 +955,11 @@ def _fully_migrated(root):
         problems.append("AGENTS.md")
     else:
         try:
-            if not re.search(r"^#{1,6}\s+路由表\s*$", agents.read_text(encoding="utf-8"), re.M):
+            text = agents.read_text(encoding="utf-8")
+            if (not re.search(r"^#{1,6}\s+路由表\s*$", text, re.M)
+                    or _missing_routes(text, _routing_table())[1]):
                 problems.append("AGENTS.md 路由表")
-        except (OSError, UnicodeError):
+        except (OSError, UnicodeError, ValueError):
             problems.append("AGENTS.md")
     for rel in (Path("docs/decisions.md"), Path(".scratch/.gitkeep")):
         path = root / rel

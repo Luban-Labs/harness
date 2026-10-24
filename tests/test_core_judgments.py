@@ -51,6 +51,11 @@ class ConceptLineTest(HookCase):
                 self.assertTrue(lines[-2].startswith("[harness] 待开工 Task: ready;"), lines)
                 self.assertEqual(sum("核心判断表" in line for line in lines), 1)
 
+    def test_headings_after_a_closed_fence_are_listed(self):
+        self.ready()
+        self.table("~~~md\n## 示例\n~~~\n````\n```\n## 示例\n````\n## 同区\n## 同场\n")
+        self.assertEqual(self.context().splitlines()[-1], LINE)
+
     def test_concept_line_lists_at_most_twenty_names(self):
         self.ready()
         names = [f"概念{n}" for n in range(1, 22)]
@@ -76,7 +81,8 @@ class ConceptLineTest(HookCase):
         self.assertTrue(baseline)
         self.assertNotIn("核心判断表", baseline)
         for content in (init.empty_core_judgments(), "# 核心判断\n\n说明。\n", "## \n",
-                        "### 同区\n", "```md\n## 同区\n```\n", b"\xff\xfe## \xe5\n"):
+                        "### 同区\n", "```md\n## 同区\n```\n", "~~~md\n## 同区\n~~~\n",
+                        "````md\n```\n## 同区\n```\n````\n", "```md\n~~~\n## 同区\n", b"\xff\xfe## \xe5\n"):
             with self.subTest(content=content):
                 self.table(content)
                 self.assertEqual(self.context(), baseline)
@@ -152,6 +158,33 @@ class InstallTableTest(unittest.TestCase):
                 self.assertEqual((target / TABLE).read_text(encoding="utf-8"),
                                  init.empty_core_judgments() if existing is None else existing)
                 self.assertIn(f"INSTALL {TABLE}" if existing is None else f"KEEP {TABLE}", result.stdout)
+
+    def test_migration_adds_fixed_routes_an_existing_routing_table_lacks(self):
+        fixture = REPO / "tests" / "trellis_fixture.py"
+        migrate = REPO / "migrate_trellis.py"
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        args = ("--scope", "active-build=src/build/", "--scope", "active-review=src/review/",
+                "--date", "2026-09-13", "--apply")
+        owned = ("# 规则\n\n## 路由表\n\n| 做什么 | 读 |\n| --- | --- |\n"
+                 "| 开工或收尾 | docs/rules/harness.md |\n| 改接口 | docs/api.md |\n\n## 其他\n\n正文\n")
+        for content, expected in (
+            (owned, "| 改接口 | docs/api.md |\n| 改动会改变"),
+            ("# 规则\n\n## 路由表\n\n正文\n", "## 路由表\n\n| 做什么 / 改到哪 | 读 |"),
+        ):
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as d:
+                target = Path(d)
+                made = subprocess.run([sys.executable, str(fixture), d], capture_output=True, text=True, env=env)
+                self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+                (target / "AGENTS.md").write_text(content, encoding="utf-8")
+                result = subprocess.run([sys.executable, str(migrate), d, *args],
+                                        capture_output=True, text=True, env=env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                text = (target / "AGENTS.md").read_text(encoding="utf-8")
+                self.assertIn(expected, text)
+                for target_cell in ("| docs/rules/harness.md |", "| docs/rules/harness.md「改动的影响面」 |",
+                                    "| docs/rules/core-judgments.md |"):
+                    self.assertEqual(text.count(target_cell), 1, text)
+                self.assertEqual(text.count("路由表"), 1, text)
 
 
 class SharedSpecReadingTest(HookCase):
