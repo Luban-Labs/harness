@@ -248,13 +248,21 @@ def codex_command(payload):
     return [shell_words(raw)]
 
 
-def edited_paths(path):
-    """Collect absolute paths written by successful edit tools or Codex FileChange."""
+def edited_paths(path, tail=None):
+    """Collect absolute paths written by successful edit tools or Codex FileChange.
+
+    With tail, read only the last that many bytes, starting at the next full line.
+    """
     calls = {}
     done = set()
     edited = set()
-    with path.open(encoding="utf-8", errors="replace") as stream:
-        for line in stream:
+    with path.open("rb") as stream:
+        size = path.stat().st_size
+        if tail is not None and size > tail:
+            stream.seek(size - tail)
+            stream.readline()
+        for raw in stream:
+            line = raw.decode("utf-8", errors="replace")
             if not any(token in line for token in ('"tool_use"', '"tool_result"', '"FileChange"')):
                 continue
             try:

@@ -208,8 +208,11 @@ def written_specs(payload, tasks, claimed):
     return result
 
 
+SCAN_BUDGET = 64 * 1024 * 1024
+
+
 def session_edits(payload):
-    """Scan this session's transcripts once for files its edit tools wrote."""
+    """Scan the newest 64 MB of this session's transcripts for files its edit tools wrote."""
     from stop_evidence import edited_paths
 
     transcript = Path(payload["transcript_path"])
@@ -217,9 +220,14 @@ def session_edits(payload):
     subagents = transcript.with_suffix("") / "subagents"
     if subagents.is_dir():
         sources.extend(subagents.rglob("*.jsonl"))
+    sources.sort(key=lambda source: source.stat().st_mtime_ns, reverse=True)
     paths = set()
+    budget = SCAN_BUDGET
     for source in sources:
-        paths |= edited_paths(source)
+        if budget <= 0:
+            break
+        paths |= edited_paths(source, tail=budget)
+        budget -= source.stat().st_size
     return paths
 
 

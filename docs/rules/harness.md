@@ -65,7 +65,7 @@
 6. 没有进展行,或 next 没写球 → 补一行带球的进展。
 7. spec 不合模板 → 照模板改:缺必填节(按 `类型:`,没写按记录)、有骨架以外的 `##` 节、还留着骨架的占位行、进展最后一行超过 200 字、进展超过 30 行、`Scope:` 落在 `.scratch` 内。
 
-第 7 条另查没人认领、头部有 `类型:`、且本会话用编辑工具按完整路径写过的 spec(Edit、Write、MultiEdit、NotebookEdit 或 Codex FileChange;用 shell 命令写的不算);项目里没有模板文件时只查长度与 Scope。
+第 7 条另查没人认领、头部有 `类型:`、且本会话最近用编辑工具按完整路径写过的 spec(Edit、Write、MultiEdit、NotebookEdit 或 Codex FileChange;用 shell 命令写的不算;只看会话记录最新的 64MB);项目里没有模板文件时只查长度与 Scope。
 
 另有兜底:本轮改了代码却没补进展时提醒补一行。认领恰好一个 Task 时对它判;认领多个时不判;没认领时读 cwd 所在工作树自己的 `.scratch`,只在恰好一个 in-progress,或 cwd 恰好落在一个 Task 的 Scope 内时判,选中的 Task 写了 `会话:` 就不提醒。单个 spec 解析不了只跳过它,不影响别的 Task 与兜底。证据只认 mtime 晚于 spec、且有本会话或其子代理直接证据的候选文件:晚于 spec 的成功编辑结果或 Codex FileChange,以及 mtime 落在调用至最后结果加 1ms 窗口内的点名文件命令或指定 git 工作区修改命令。Scope 落在排除目录(如 `.scratch`)内、纯删除、未点名命令、后台进程、独立 Codex 子线程、只改 spec 正文或项目超过 20000 个文件可能漏过。两个 hook 不读写 `.scratch/.session`。
 
