@@ -38,7 +38,8 @@
 - 看板提示「你认领过的 Task 已被会话 X 接手」时,不再改它的 spec 与代码;有话发消息给新会话(Claude 用 ListAgents),发不了就告诉 owner。
 - `Scope: <相对项目根的目录>` 只决定「改了代码却没补进展」兜底的走查范围;未写时按全项目。
 - spec 只改主工作树那份;git worktree 里的 `.scratch` 副本不改。看板与认领提醒读主工作树那份;没认领时的兜底按 cwd 所在工作树自己的 `.scratch` 判(兼容旧行为),在 worktree 里收到时进展照样写主工作树那份。
-- spec 改动不单独提交、不单独推送:有代码的 Task,代码合进 main 时把 spec 改动一起提交、一起推;没有代码的 Task,收件归档时提交、推送一次。中途的 spec 留在主工作树不提交,看板、Stop 与接手读的都是磁盘上的文件;提交时只 add 自己 Task 的 spec,别的会话的未提交改动不动。
+- spec 改动(含本 Task 的 `issues/`)只在两个时刻提交:本 Task 的代码合进 main 时(在主工作树合并或拉下合并后的 main,再提交);收件归档时,不论有没有代码(`git add -A .scratch/<名> .scratch/archive/<名>`)。中途写完进展不提交;owner 说已归档 Task 的 `[你]` 项已做,勾完随本会话下一次提交带上。spec 提交不单独推送,跟下一次按「推进与请示」可以推的推送一起走。
+- 中途的 spec 留在主工作树,看板、Stop 与接手读的都是磁盘上的文件(没认领时 worktree 里的兜底读已提交的副本,可能落后)。主工作树里不跑 `reset --hard`、`checkout -- .`、`restore .`、`clean`、`stash`、`add -A`、`commit -a`;拉取用 `pull --ff-only` 或 `pull --rebase --autostash`;提交只 add 自己的文件。
 
 ## 推进与请示
 
