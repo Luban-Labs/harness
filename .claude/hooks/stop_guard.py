@@ -208,17 +208,19 @@ def written_specs(payload, tasks, claimed):
     return result
 
 
-def edited_by_session(payload, spec):
-    """Scan this session's transcripts for a direct edit of one spec."""
-    from stop_evidence import transcript_evidence
+def session_edits(payload):
+    """Scan this session's transcripts once for files its edit tools wrote."""
+    from stop_evidence import edited_paths
 
     transcript = Path(payload["transcript_path"])
     sources = [transcript]
     subagents = transcript.with_suffix("") / "subagents"
     if subagents.is_dir():
         sources.extend(subagents.rglob("*.jsonl"))
-    candidates = {spec.resolve(): spec.stat().st_mtime_ns}
-    return any(transcript_evidence(source, 0, candidates) for source in sources)
+    paths = set()
+    for source in sources:
+        paths |= edited_paths(source)
+    return paths
 
 
 def legacy_reminder(payload, root, cwd, tasks, foreign=()):
@@ -336,11 +338,12 @@ def main():
         message = reminder(task, busy) or spec_reminder(task, task_root, skeleton)
         if message:
             messages.append(message)
-    for task in written_specs(payload, tasks, claimed):
-        message = spec_reminder(task, task_root, skeleton)
-        # Transcripts run to hundreds of MB, so only a failing spec pays for the scan.
-        if message and edited_by_session(payload, task["spec"]):
-            messages.append(message)
+    failing = [(task, message) for task in written_specs(payload, tasks, claimed)
+               if (message := spec_reminder(task, task_root, skeleton))]
+    # Transcripts run to hundreds of MB: scan once, and only when some spec fails.
+    if failing:
+        edits = session_edits(payload)
+        messages.extend(message for task, message in failing if task["spec"].resolve() in edits)
     if messages:
         return output_message("\n".join(messages), "turn_id" in payload)
 

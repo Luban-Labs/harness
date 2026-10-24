@@ -114,7 +114,7 @@ def read_task(spec, root):
             section = ""
         elif section == "checks":
             match = CHECK.fullmatch(line)
-            if match and not (match.group(3).strip().startswith("<") and match.group(3).strip().endswith(">")):
+            if match and not re.fullmatch(r"<[^<>]*>", match.group(3).strip()):
                 checks.append((match.group(1).lower() == "x", match.group(2), match.group(3).strip()))
         elif section == "progress" and line.strip():
             progress = line.strip()

@@ -286,3 +286,30 @@ class SpecTemplateTest(HookCase):
         result = self.command("--new-task", "linked", "--kind", "记录")
         self.assertEqual(result.returncode, 1)
         self.assertFalse((target / "linked").exists())
+
+    def test_real_check_wrapped_in_tags_still_counts(self):
+        spec = self.ready_spec()
+        text = spec.read_text(encoding="utf-8").replace(
+            "- [ ] [我] 已填",
+            "- [x] [我] 已填\n- [ ] [我] <button>提交</button> 点击后应出现 <dialog>成功</dialog>",
+        )
+        spec.write_text(text, encoding="utf-8")
+        self.assertNotIn("已全部勾上", self.message())
+
+    def test_only_edit_tools_on_the_exact_path_attribute_an_unclaimed_spec(self):
+        first = self.create("first")
+        second = self.create("second")
+        for spec in (first, second):
+            text = re.sub(r"<[^<>]+>", "已填", spec.read_text(encoding="utf-8"))
+            spec.write_text(text.replace("## 解法\n\n已填\n\n", ""), encoding="utf-8")
+        base = 1_900_000_000_000_000_000
+        self.set_mtime(first, base + 300)
+        self.set_mtime(second, base + 300)
+        reading = self.transcript(*self.claude_call(
+            "Bash", {"command": f"cat {first}"}, base + 200, base + 400))
+        self.assertEqual(self.message(transcript_path=str(reading)), "")
+        editing = self.transcript(*self.claude_call(
+            "Edit", {"file_path": str(second)}, base + 200, base + 400))
+        message = self.message(transcript_path=str(editing))
+        self.assertIn("Task second 的 spec 不合模板", message)
+        self.assertNotIn("Task first", message)

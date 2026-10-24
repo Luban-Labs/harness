@@ -248,6 +248,48 @@ def codex_command(payload):
     return [shell_words(raw)]
 
 
+def edited_paths(path):
+    """Collect absolute paths written by successful edit tools or Codex FileChange."""
+    calls = {}
+    done = set()
+    edited = set()
+    with path.open(encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            if not any(token in line for token in ('"tool_use"', '"tool_result"', '"FileChange"')):
+                continue
+            try:
+                row = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            if not isinstance(row, dict):
+                continue
+            message = row.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            for item in content if isinstance(content, list) else ():
+                if not isinstance(item, dict):
+                    continue
+                if row.get("type") == "assistant" and item.get("type") == "tool_use":
+                    data = item.get("input")
+                    name = item.get("name")
+                    key = EDIT_TOOLS.get(name) if isinstance(name, str) else None
+                    if key and isinstance(data, dict) and isinstance(item.get("id"), str):
+                        calls[item["id"]] = data.get(key)
+                elif (row.get("type") == "user" and item.get("type") == "tool_result"
+                      and item.get("is_error") is not True
+                      and isinstance(item.get("tool_use_id"), str)):
+                    done.add(item["tool_use_id"])
+            payload = row.get("payload")
+            if (isinstance(payload, dict) and row.get("type") == "event_msg"
+                    and payload.get("type") == "item_completed"):
+                item = payload.get("item")
+                if (isinstance(item, dict) and item.get("type") == "FileChange"
+                        and isinstance(item.get("changes"), dict)):
+                    edited.update(change for change in item["changes"] if isinstance(change, str))
+    edited.update(value for call_id, value in calls.items()
+                  if call_id in done and isinstance(value, str))
+    return {Path(value).resolve() for value in edited if Path(value).is_absolute()}
+
+
 def transcript_evidence(path, spec_mtime, candidates):
     if path.stat().st_mtime_ns <= spec_mtime:
         return False

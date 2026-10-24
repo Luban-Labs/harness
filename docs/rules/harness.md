@@ -5,7 +5,7 @@
 ## spec 格式
 
 - 唯一格式是 `.agents/skills/interview-me/templates/spec.md`,各节写法、必填与可省都以它为准。不手写:在项目根运行 `python3 .claude/hooks/session_start.py --new-task <功能名> --kind 功能|记录` 生成骨架再填;必填节没内容写「无」,不加骨架以外的 `##` 节。
-- Task 目录为 `.scratch/<功能名>/`,只放 `spec.md`;任务包、脚本、调查记录放会话临时目录。`spec.md` 首行为 `Status: ready-for-agent`、`Status: in-progress` 或 `Status: done`;其后到第一个空行或 `#` 行为头部,每行 `键: 值`:`类型:`、`建单:`、`Scope:`、`Tickets:`、`会话:`,顺序不限。`Scope:` 只写代码目录。
+- Task 目录为 `.scratch/<功能名>/`,只放 `spec.md` 与本地拆票时的 `issues/`;任务包、脚本、调查记录放会话临时目录。`spec.md` 首行为 `Status: ready-for-agent`、`Status: in-progress` 或 `Status: done`;其后到第一个空行或 `#` 行为头部,每行 `键: 值`:`类型:`、`建单:`、`Scope:`、`Tickets:`、`会话:`,顺序不限。`Scope:` 只写代码目录。
 - 正文写现在的状态:owner 定了什么、范围变了,当场改对应的节,过时的内容直接删,进展里只记一句「已改正文」。只写本 Task 目标以内的事,别的事写进它自己的 Task 或提交信息。
 - `## 验收` 段每项一个勾选框并标执行者:`- [ ] [我] …` 是执行者当场能演示并自验的,`- [ ] [你] …` 是只有 owner 能做或要 owner 看的;做完改 `[x]`。
 - 验收项要当场能演示。依赖自然发生的事(下一次真实上架、下一轮调价)时先自己造一个(预览批次、测试数据、手动触发一轮);造不出来的写成 `[你]` 项,写明届时看什么。有 ticket 的 Task 把「全部 ticket 关闭」写成一条 `[我]` 项。
@@ -65,7 +65,7 @@
 6. 没有进展行,或 next 没写球 → 补一行带球的进展。
 7. spec 不合模板 → 照模板改:缺必填节(按 `类型:`,没写按记录)、有骨架以外的 `##` 节、还留着骨架的占位行、进展最后一行超过 200 字、进展超过 30 行、`Scope:` 落在 `.scratch` 内。
 
-第 7 条另查本会话这一轮写过的 spec(以本会话直接证据为准),包括没认领的;项目里没有模板文件时只查长度与 Scope。
+第 7 条另查没人认领、头部有 `类型:`、且本会话用编辑工具按完整路径写过的 spec(Edit、Write、MultiEdit、NotebookEdit 或 Codex FileChange;用 shell 命令写的不算);项目里没有模板文件时只查长度与 Scope。
 
 另有兜底:本轮改了代码却没补进展时提醒补一行。认领恰好一个 Task 时对它判;认领多个时不判;没认领时读 cwd 所在工作树自己的 `.scratch`,只在恰好一个 in-progress,或 cwd 恰好落在一个 Task 的 Scope 内时判,选中的 Task 写了 `会话:` 就不提醒。单个 spec 解析不了只跳过它,不影响别的 Task 与兜底。证据只认 mtime 晚于 spec、且有本会话或其子代理直接证据的候选文件:晚于 spec 的成功编辑结果或 Codex FileChange,以及 mtime 落在调用至最后结果加 1ms 窗口内的点名文件命令或指定 git 工作区修改命令。Scope 落在排除目录(如 `.scratch`)内、纯删除、未点名命令、后台进程、独立 Codex 子线程、只改 spec 正文或项目超过 20000 个文件可能漏过。两个 hook 不读写 `.scratch/.session`。
 
