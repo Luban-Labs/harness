@@ -35,6 +35,7 @@ description: 当 owner 描述一个想做的东西、但构思还不完整时使
    - 大 → 走 [to-spec.md](./references/to-spec.md):命中 docs/rules/harness.md「何时建 Task」三条之一,第 3 条现在已能看出会命中也算。新组件或新依赖另过 /kickoff,不因此出 spec。
    - 中 → 先列 `[step] → 执行者 → verify: [check]`,再做:多步或多文件,但三条都没中。
    - 小 → 直接做:改动范围一句话说得清。
+   中、小不建 Task,改动会改变已有事实时照样按 docs/rules/harness.md「改动的影响面」清点,清单写进提交信息或交付说明。
    写成「判定:大 / 出 spec,因为 <命中哪条>」放在对齐结论末尾;owner 一句话就能改判,改了照改后的走。
    判据:判定引用的是命中的条件,不是「我觉得」。
 

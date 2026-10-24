@@ -161,7 +161,8 @@ def build_plan(target, with_skill):
     if agents.is_symlink() or (agents.exists() and not agents.is_file()):
         p.conflicts.append("AGENTS.md 类型不对")
     elif agents.exists():
-        p.kept.append("AGENTS.md(保留你的;路由表里要有一行「开始做或收一个 Task → docs/rules/harness.md」)")
+        p.kept.append("AGENTS.md(保留你的;路由表里要有一行「开始做或收一个 Task → docs/rules/harness.md」,"
+                      "一行「改动会改变已有事实 → docs/rules/harness.md「改动的影响面」」,照 templates/AGENTS.md 抄)")
     else:
         p.copy(HARNESS / "templates" / "AGENTS.md", "AGENTS.md")
     p.link("CLAUDE.md", "AGENTS.md")

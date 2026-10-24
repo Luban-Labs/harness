@@ -54,6 +54,7 @@ class InitProjectTest(unittest.TestCase):
             changed = [p for p in before if before[p] != after.get(p)]
             self.assertEqual(changed, [], changed)
             self.assertIn("路由表里要有一行", r.stdout)
+            self.assertIn("「改动的影响面」", r.stdout)
 
     def test_conflict_refuses_before_writing_anything(self):
         with tempfile.TemporaryDirectory() as d:

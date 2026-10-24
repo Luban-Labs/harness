@@ -58,9 +58,11 @@ class SpecTemplateTest(HookCase):
         return value.get("reason", value.get("hookSpecificOutput", {}).get("additionalContext"))
 
     def test_generates_both_kinds_and_board_reads_ready_specs(self):
-        for kind, present, absent in (
-            ("功能", ("解法", "实现决策", "测试决策", "未知", "用户故事"), ()),
-            ("记录", (), ("解法", "实现决策", "测试决策", "未知", "用户故事")),
+        for kind, present, absent, neighbours in (
+            ("功能", ("解法", "影响面", "实现决策", "测试决策", "未知", "用户故事"), (),
+             ["不做", "影响面", "实现决策"]),
+            ("记录", ("影响面",), ("解法", "实现决策", "测试决策", "未知", "用户故事"),
+             ["不做", "影响面", "验收"]),
         ):
             with self.subTest(kind=kind):
                 spec = self.create(kind, kind)
@@ -74,6 +76,9 @@ class SpecTemplateTest(HookCase):
                     self.assertIn(f"## {title}\n", text)
                 for title in absent:
                     self.assertNotIn(f"## {title}\n", text)
+                titles = re.findall(r"^## (.+)$", text, flags=re.M)
+                start = titles.index("不做")
+                self.assertEqual(titles[start:start + 3], neighbours)
         board = self.command("--board")
         self.assertIn("待开工 Task: 功能, 记录;", board.stdout)
         from importlib.util import module_from_spec, spec_from_file_location
@@ -172,6 +177,24 @@ class SpecTemplateTest(HookCase):
                 self.assertEqual(self.message(), "")
                 spec.write_text(text.replace("## 问题\n\n已填\n\n", ""), encoding="utf-8")
                 self.assertIn("缺必填节: 问题", self.message())
+
+    def test_impact_section_required_for_both_kinds(self):
+        placeholder = next(line for line in TEMPLATE.read_text(encoding="utf-8").splitlines()
+                           if line.startswith("- <被改的事实>"))
+        for kind in ("功能", "记录"):
+            with self.subTest(kind=kind):
+                self.reset_root()
+                spec = self.ready_spec(kind=kind)
+                text = spec.read_text(encoding="utf-8")
+                self.assertEqual(self.message(), "")
+                section = re.search(r"## 影响面\n\n.*?\n\n(?=## )", text, flags=re.S).group(0)
+                spec.write_text(text.replace(section, ""), encoding="utf-8")
+                self.assertIn("缺必填节: 影响面", self.message())
+                spec.write_text(text.replace(section, "## 影响面\n\n" + placeholder + "\n\n"),
+                                encoding="utf-8")
+                self.assertIn("还留着骨架占位行", self.message())
+                spec.write_text(text.replace(section, "## 影响面\n\n无\n\n"), encoding="utf-8")
+                self.assertEqual(self.message(), "")
 
     def test_priority_one_to_six_omits_seventh_rule(self):
         variants = (
