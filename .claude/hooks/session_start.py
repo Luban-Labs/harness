@@ -205,77 +205,92 @@ def load_tasks(root):
     return active, ready, archived
 
 
-def claim_state(claim, now, home, registrations, cache):
-    """Resolve one claim once per board; malformed or unreadable evidence is ignored."""
+def record_stamp(claim, kind, probe):
+    """Index each record tree once, then resolve full or prefix claims."""
+    if kind not in probe["indexes"]:
+        root = probe["home"] / (".claude/projects" if kind == "claude" else ".codex/sessions")
+        pattern = "*/*.jsonl" if kind == "claude" else "**/rollout-*.jsonl"
+        index = {}
+        try:
+            for path in root.glob(pattern):
+                if time.monotonic() >= probe["deadline"]:
+                    break
+                match = (re.search(r"([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\.jsonl$", path.name)
+                         if kind == "codex" else None)
+                session_id = match.group(1) if match else path.stem if kind == "claude" else ""
+                if re.fullmatch(r"[A-Za-z0-9_-]{8,}", session_id):
+                    try:
+                        index[session_id] = max(index.get(session_id, 0), path.stat().st_mtime)
+                    except OSError:
+                        pass
+        except (OSError, ValueError):
+            pass
+        probe["indexes"][kind] = index
+    return max((stamp for session_id, stamp in probe["indexes"][kind].items()
+                if session_matches(claim, session_id)), default=None)
+
+
+def claim_state(claim, probe):
+    cache = probe["states"]
     if claim in cache:
         return cache[claim]
     cache[claim] = ""
-    if not re.fullmatch(r"[A-Za-z0-9_-]{8,}", claim):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,}", claim) or time.monotonic() >= probe["deadline"]:
         return ""
+    now = probe["now"]
+    def hours(stamp):
+        count = max(0, int((now - stamp) // 3600))
+        return f"{count} 小时" if count else "不到 1 小时"
 
-    def latest(pattern, root):
-        key = ("record", str(root), pattern)
-        if key in cache:
-            return cache[key]
-        try:
-            cache[key] = max((path.stat().st_mtime for path in root.glob(pattern) if path.is_file()),
-                             default=None)
-        except (OSError, ValueError):
-            cache[key] = None
-        return cache[key]
-
-    def duration(stamp):
-        hours = max(0, int((now - stamp) // 3600))
-        return f"{hours} 小时" if hours else "不到 1 小时"
-
-    for entry in registrations:
-        session_id = entry.get("sessionId")
-        pid = entry.get("pid")
-        start = entry.get("procStart")
-        if (not isinstance(session_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,}", session_id)
-                or not session_matches(claim, session_id)
-                or type(pid) is not int or pid <= 0 or not isinstance(start, str) or not start):
+    matching = [row for row in probe["registrations"]
+                if session_matches(claim, row.get("sessionId"))]
+    confirmed_dead = bool(matching) or probe["valid_registrations"] > 0
+    uncertain = False
+    for row in matching:
+        pid, start = row.get("pid"), row.get("procStart")
+        if type(pid) is not int or pid <= 0 or not isinstance(start, str) or not start:
+            uncertain = True
             continue
-        key = ("process", session_id)
-        if key not in cache:
+        if time.monotonic() >= probe["deadline"]:
+            return ""
+        if pid not in probe["processes"]:
             try:
                 os.kill(pid, 0)
-                exists = True
-            except PermissionError:
-                exists = True
             except ProcessLookupError:
-                exists = False
-            except OSError:
-                exists = True
-            except OverflowError:
-                exists = False
-            if exists:
+                probe["processes"][pid] = (False, None)
+            except (OSError, OverflowError):
+                probe["processes"][pid] = (None, None)
+            else:
+                remaining = probe["deadline"] - time.monotonic()
+                if remaining <= 0:
+                    return ""
                 try:
-                    # procStart is recorded in UTC; ps prints local time unless told otherwise.
                     result = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)],
-                                            capture_output=True, text=True, timeout=2,
+                                            capture_output=True, text=True, timeout=min(1, remaining),
                                             env={**os.environ, "TZ": "UTC", "LC_ALL": "C"})
-                    exists = not result.stdout.strip() or result.stdout.strip() == start
+                    probe["processes"][pid] = (True, result.stdout.strip() or None)
                 except (OSError, subprocess.TimeoutExpired):
-                    pass
-            cache[key] = exists
-        if not cache[key]:
-            break
-        stamp = latest(f"*/{session_id}.jsonl", home / ".claude/projects")
-        if stamp is None:
-            updated = entry.get("updatedAt")
-            stamp = updated / 1000 if type(updated) is int and updated > 0 else now
-        cache[claim] = ("在做" if now - stamp < 10 * 3600 else
-                        f"挂着 {duration(stamp)}")
-        return cache[claim]
-    stamp = latest(f"*/{claim}*.jsonl", home / ".claude/projects")
-    if stamp is not None:
-        cache[claim] = f"断了 {duration(stamp)}"
-    else:
-        stamp = latest(f"**/rollout-*{claim}*.jsonl", home / ".codex/sessions")
-        if stamp is not None:
-            cache[claim] = ("在做" if now - stamp < 10 * 3600 else
-                            f"断了 {duration(stamp)}")
+                    probe["processes"][pid] = (True, None)
+        exists, actual_start = probe["processes"][pid]
+        if exists is True and actual_start == start:
+            stamp = record_stamp(row["sessionId"], "claude", probe)
+            updated = row.get("updatedAt")
+            stamp = stamp if stamp is not None else updated / 1000 if type(updated) is int and updated > 0 else now
+            if time.monotonic() < probe["deadline"]:
+                cache[claim] = "在做" if now - stamp < 36000 else f"挂着 {hours(stamp)}"
+            return cache[claim]
+        if exists is None or exists is True and actual_start is None:
+            uncertain = True
+    claude = record_stamp(claim, "claude", probe)
+    if time.monotonic() >= probe["deadline"]:
+        return ""
+    if confirmed_dead and not uncertain and claude is not None:
+        cache[claim] = f"断了 {hours(claude)}"
+    elif not matching or uncertain:
+        stamp = claude if claude is not None else record_stamp(claim, "codex", probe)
+        if stamp is not None and time.monotonic() < probe["deadline"]:
+            cache[claim] = ("在做" if now - stamp < 36000 else
+                            f"断了 {hours(stamp)}")
     return cache[claim]
 
 
@@ -295,7 +310,7 @@ def board(root, session_id="", include_session=True):
             if (task["status"] == "in-progress" and task["session"]
                     and not session_matches(task["session"], session_id)
                     and any(f"接手自 {session_id[:8]}" in row for row in task["takeovers"])):
-                lines.append(f"[harness] 你认领过的 Task {task['name']} 已被会话 {task['session'][:8]} 接手:别再改它的 spec 与代码,有话用 ListAgents 发给新会话。")
+                lines.append(f"[harness] 你认领过的 Task {task['name']} 已被会话 {task['session'][:8]} 接手:别再改它的 spec 与代码;有话发消息给新会话(Claude 用 ListAgents),发不了就告诉 owner。")
         for task in active:
             if task["status"] == "in-progress" and session_matches(task["session"], session_id):
                 lines.append(f"[harness] 本会话认领: {task['name']}(.scratch/{task['name']}/spec.md) 最近进展: {task['progress'] or '无进展'}")
@@ -311,31 +326,37 @@ def board(root, session_id="", include_session=True):
         lines.append(f"[harness] 进行中 Task {len(active)} 个:")
         now = datetime.now()
         clock = time.time()
+        deadline = time.monotonic() + 3
         try:
             home = Path.home()
         except Exception:
             home = None
         registrations = []
+        valid = 0
         if home and any(task["status"] == "in-progress" and task["session"] for task in active[:ACTIVE_LIMIT]):
             try:
                 for path in (home / ".claude/sessions").glob("*.json"):
+                    if time.monotonic() >= deadline:
+                        break
                     try:
                         entry = json.loads(path.read_text(encoding="utf-8"))
-                        if isinstance(entry, dict):
+                        session_id = entry.get("sessionId") if isinstance(entry, dict) else None
+                        if isinstance(session_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{8,}", session_id):
                             registrations.append(entry)
+                            if type(entry.get("pid")) is int and entry["pid"] > 0 and isinstance(entry.get("procStart"), str) and entry["procStart"]:
+                                valid += 1
                     except (OSError, UnicodeError, ValueError):
                         continue
             except (OSError, ValueError):
                 pass
-        registrations.sort(key=lambda entry: entry.get("updatedAt")
-                           if isinstance(entry.get("updatedAt"), (int, float)) else 0,
-                           reverse=True)
-        states = {}
+        probe = {"home": home, "now": clock, "deadline": deadline,
+                 "registrations": registrations, "valid_registrations": valid,
+                 "indexes": {}, "processes": {}, "states": {}}
         for task in active[:ACTIVE_LIMIT]:
             session = f"会话 {task['session'][:8]}" if task["session"] else "无人认领"
-            if home and task["status"] == "in-progress" and task["session"]:
+            if home and time.monotonic() < deadline and task["status"] == "in-progress" and task["session"]:
                 try:
-                    state = claim_state(task["session"], clock, home, registrations, states)
+                    state = claim_state(task["session"], probe)
                     if state:
                         session += f"({state})"
                 except Exception:
