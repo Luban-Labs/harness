@@ -11,7 +11,7 @@ description: 当 owner 描述一个想做的东西、但构思还不完整时使
 
 - 用:owner 讲了一个想做的东西,目标、范围、验收三者至少一项还说不清。
 - 用:owner 说「采访我」「先问我」「你看还缺什么」。
-- 不用:owner 已给出具体文件与改法,直接做;已有 spec,按该文档走;只是在问问题,不是要做东西;owner 说「建个 Task」「记个 bug」这类自己已经确定的事,按 docs/rules/harness.md 直接建 Task,不采访。
+- 不用:owner 已给出具体文件与改法,直接做;已有 spec,按该文档走;只是在问问题,不是要做东西;owner 说「建个 Task」「记个 bug」这类自己已经确定的事,按 docs/rules/harness.md 直接建 Task,不采访;直接建的 spec 也用本 skill 的模板 [spec.md](./templates/spec.md)。
 
 ## 做法
 
