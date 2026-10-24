@@ -32,10 +32,10 @@
 - 开工或接手时:首行改 `Status: in-progress`;头部写 `会话: <本会话 ID>`(以 SessionStart 注入的为准;Claude 没看到注入时读 `$CLAUDE_CODE_SESSION_ID`),已有就覆盖,一个 Task 只认最后写入的会话;验收段没有勾选框就先改写;末尾没有 `## 进展` 时建立空段,已有段不改。
 - 可以同时有多个 `in-progress` Task,各由认领它的会话负责。工人与子代理不认领、不写 spec,进展写进回报。
 - 看板在进行中 Task 的认领会话后标状态:「在做」进程在、10 小时内有动静;「挂着 N 小时」进程在、10 小时以上没动静;「断了 N 小时」进程不在(Codex 会话看记录:10 小时以上没写算断了)。找不到会话记录时不标。
-- 接手条件,中一条才接:owner 点名让你做;owner 在本会话说「继续」「接着做」,且看板上恰好一个「断了」的 Task(不止一个先问接哪个);它是「待结案」且已搁 1 小时以上。「在做」的不接,有事用 ListAgents 发消息;「挂着」的要 owner 点名。
+- 接手条件,中一条才接:owner 点名让你做;owner 在本会话说「继续」「接着做」,且看板上恰好一个「断了」的 Task(不止一个先问接哪个);它是「待结案」且已搁 1 小时以上。「在做」的不接,有事发消息给它(Claude 用 ListAgents 找到会话再 SendMessage;发不了就告诉 owner);「挂着」的要 owner 点名。
 - 接手五步:① 跑 `python3 .claude/hooks/session_start.py --board` 拿最新状态;② 头部 `会话:` 改成本会话,进展追加一行 `done: 接手自 <旧会话 ID 前 8 位>`;③ 盘现场:头部 `工作区:` 指的 worktree 看 `git status` 与 `git log`,旧会话派的 codex 工人还在跑就等它回包或停掉;④ 只读旧会话记录末尾(最后一条回复与最后几次工具调用,约 2K token;Claude 在 `~/.claude/projects/*/<ID>.jsonl`,Codex 在 `~/.codex/sessions/**/rollout-*<ID>*.jsonl`),没写进 spec 的决定补进正文;⑤ 从最后一行进展的球接着做。
 - 开 worktree 时在头部写 `工作区: <worktree 绝对路径>`,删 worktree 时去掉这行。
-- 看板提示「你认领过的 Task 已被会话 X 接手」时,不再改它的 spec 与代码;有话用 ListAgents 发给新会话。
+- 看板提示「你认领过的 Task 已被会话 X 接手」时,不再改它的 spec 与代码;有话发消息给新会话(Claude 用 ListAgents),发不了就告诉 owner。
 - `Scope: <相对项目根的目录>` 只决定「改了代码却没补进展」兜底的走查范围;未写时按全项目。
 - spec 只改主工作树那份;git worktree 里的 `.scratch` 副本不改。看板与认领提醒读主工作树那份;没认领时的兜底按 cwd 所在工作树自己的 `.scratch` 判(兼容旧行为),在 worktree 里收到时进展照样写主工作树那份。
 
