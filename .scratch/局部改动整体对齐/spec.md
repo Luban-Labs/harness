@@ -28,6 +28,15 @@ Status: in-progress
 - 不改 ticket-seller-tools 的代码,那边的收口与排查在它的 Task「字段口径收口」(出处:owner 10-24 三件分开定)
 - 讨论定稿前不改模板、规则与提示词(出处:owner 10-24「应该讨论一下」)
 
+## 影响面
+
+- spec 骨架多一节「影响面」:建单与 Stop 第 7 条(引用,运行时读模板)→ 不受影响,测试覆盖缺节与占位提示;测试里写死的节名(副本)→ 跟改;迁移脚本自带骨架(副本)→ 已知差异:记在决策账本,迁来的 spec 本就不合模板
+- harness.md 规则与 interview-me 文件(副本:ticket-seller-tools、dashboard 各一份)→ ticket-seller-tools 跟改,按 diff 合并、保留项目三行;dashboard 已知差异:落后多版,升级时整段跳版,记在本节
+- 别人认领的进行中旧 spec(绕外部:会话照规则执行)→ 跟改:harness.md 写明没动手、做到一半、做完三种补法,并发消息给认领会话
+- 路由表(引用):harness 根 AGENTS.md、templates/AGENTS.md、ticket-seller-tools AGENTS.md → 跟改
+- 用户级 handoff 命令写死的节名(副本)→ 已知差异:不含影响面但不出错,记在本节
+- 推 interview-me 文件会在生产机 runner 跑一轮 CI(绕外部)→ 不受影响
+
 ## 实现决策
 
 - 清点影响面不靠任何人「想到」,靠查、收、测(出处:owner 10-24「其实你让我想我也想不到」;证据:5ec8ce0 改的是挂单 row_name 存什么,改动前按字段名搜全库 96 处、13 个文件,联动核对那行就在其中,逐个过做得到,凭记忆想不到):
@@ -59,3 +68,4 @@ Status: in-progress
 - 10-24 22:59 done: owner「CLAUDE.md 应该动,你先做 harness 改动」「用 subagent 做,用户级怎么改我们需要讨论」;开工 | next: 等: subagent 改 harness 模板与规则(回看: Agent 完成通知)
 - 10-24 23:16 done: subagent 交回(模板加「影响面」、to-spec 加清点步、harness.md 新节与收件核对、路由行,145 测试过),补座位标准化两条教训 631f8d8;用户级三文件已改 | next: 等: 对抗审(回看: Agent 完成通知)
 - 10-24 23:22 done: 对抗审 1 blocking(做到一半的旧 spec 口径)已修 32bf481,145 测试过,合入 main 3ecc291 未推;4 条 important 交 owner | next: 你: 回 CLAUDE.md、PM 模板、路由行、推送与 4 条 important 怎么定
+- 10-24 23:26 done: owner「1 改 2 改 3 改 4 修 5 推」;harness 补比较方两问、to-tickets 中间状态依赖、根路由行 1190a3a 合入 main | next: 我: 推 harness、改用户级与 PM 模板、同步 ticket-seller-tools
