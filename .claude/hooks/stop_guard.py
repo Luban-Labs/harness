@@ -33,6 +33,8 @@ def walk_error(error):
 
 def reminder(task, busy):
     """Return the first applicable instruction for one claimed Task."""
+    from session_start import ready_to_close
+
     name = task["name"]
     if task["status"] == "done":
         source = shlex.quote(f".scratch/{name}")
@@ -48,8 +50,7 @@ def reminder(task, busy):
             "改写成 - [ ] [我] … / - [ ] [你] …;[我] 是你当场能演示并自验的,"
             "[你] 是只有 owner 能做或要 owner 看的。"
         )
-    mine = [check for check in checks if check[1] == "我"]
-    if mine and all(check[0] for check in mine):
+    if ready_to_close(task):
         return (
             f"[harness] Task {name} 的 [我] 验收项已全部勾上:现在做收件三问,"
             "改 Status: done 并归档;没勾的 [你] 项留在 spec 里,看板会继续列给 owner。"
@@ -91,14 +92,11 @@ def output_message(message, codex):
 
 def spec_reminder(task, root, skeleton):
     """Collect all template violations for one parseable Task."""
+    from session_start import section_lines, spec_sections
+
     lines = task["spec"].read_text(encoding="utf-8").splitlines()
-    sections = [(i, line[3:].strip()) for i, line in enumerate(lines) if line.startswith("## ")]
-    progress = []
-    for index, (start, title) in enumerate(sections):
-        if title.startswith("进展"):
-            end = sections[index + 1][0] if index + 1 < len(sections) else len(lines)
-            progress = [line for line in lines[start + 1:end] if line.strip()]
-            break
+    sections = spec_sections(lines)
+    progress = section_lines(sections, "进展")
     problems = []
     if skeleton is not None:
         names = []
@@ -114,13 +112,13 @@ def spec_reminder(task, root, skeleton):
         kind = task["kind"]
         required = [name for name in names if name not in (optional if kind == "功能" else record_skips)]
         missing = [name for name in required
-                   if not any(title.startswith(name) for _, title in sections)]
+                   if not any(title.startswith(name) for _, title, _ in sections)]
         first_section = sections[0][0] if sections else len(lines)
         if not any(re.match(r"^目标[：:]", line) for line in lines[:first_section]):
             missing.insert(0, "目标")
         if missing:
             problems.append("缺必填节: " + "、".join(missing))
-        extra = [title for _, title in sections if not any(title.startswith(name) for name in names)]
+        extra = [title for _, title, _ in sections if not any(title.startswith(name) for name in names)]
         if extra:
             problems.append("骨架以外的节: " + "、".join(extra))
         placeholders = {line.strip() for line in skeleton if re.search(r"<[^<>]+>", line)}

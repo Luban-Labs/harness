@@ -51,6 +51,16 @@ class ConceptLineTest(HookCase):
                 self.assertTrue(lines[-2].startswith("[harness] 待开工 Task: ready;"), lines)
                 self.assertEqual(sum("核心判断表" in line for line in lines), 1)
 
+    def test_concept_line_lists_at_most_twenty_names(self):
+        self.ready()
+        names = [f"概念{n}" for n in range(1, 22)]
+        self.table("".join(f"## {name}\n" for name in names))
+        line = self.context().splitlines()[-1]
+        self.assertEqual(line, f"[harness] 核心判断表 {TABLE}:{'、'.join(names[:20])} 等 21 个;新写或改判断前先查表")
+        self.table("".join(f"## {name}\n" for name in names[:20]))
+        self.assertEqual(self.context().splitlines()[-1],
+                         f"[harness] 核心判断表 {TABLE}:{'、'.join(names[:20])};新写或改判断前先查表")
+
     def test_empty_board_stays_zero_bytes_with_a_filled_table(self):
         self.table("# 核心判断\n\n## 同区\n")
         archived = self.root / ".scratch" / "archive" / "closed"
@@ -144,6 +154,41 @@ class InstallTableTest(unittest.TestCase):
                 self.assertIn(f"INSTALL {TABLE}" if existing is None else f"KEEP {TABLE}", result.stdout)
 
 
+class SharedSpecReadingTest(HookCase):
+    """The board and Stop read a spec's sections and 待结案 through one implementation."""
+
+    SESSION = "cb260c48-3465-481c-9e57-cea155732e77"
+
+    def spec(self, text):
+        folder = self.root / ".scratch" / "active"
+        folder.mkdir(exist_ok=True)
+        (folder / "spec.md").write_text(f"Status: in-progress\n会话: {self.SESSION}\n\n# Task\n\n{text}",
+                                        encoding="utf-8")
+
+    def board_line(self):
+        output = self.run_session({"cwd": str(self.root), "session_id": "other-session"})
+        context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
+        return next(line for line in context.splitlines() if line.startswith("- active ·"))
+
+    def stop(self):
+        output = self.run_stop({"cwd": str(self.root), "stop_hook_active": False, "session_id": self.SESSION})
+        return json.loads(output)["hookSpecificOutput"]["additionalContext"] if output else ""
+
+    def test_extra_space_after_hashes_is_the_same_section_for_both(self):
+        self.spec("##  验收\n- [x] [我] test\n- [ ] [你] look\n\n##  进展\n- 10-25 09:00 done: x | next: 你: look\n")
+        self.assertIn("· 待结案: look", self.board_line())
+        self.assertIn("[我] 验收项已全部勾上", self.stop())
+
+    def test_top_heading_ends_progress_for_both(self):
+        short = "- 10-25 09:00 done: x | next: 你: look"
+        long = "- 10-25 10:00 " + "字" * 200 + " | next: 你: look"
+        self.spec(f"## 验收\n- [ ] [我] test\n\n## 进展\n{short}\n# 附录\n{long}\n")
+        self.assertIn("· 你: look", self.board_line())
+        self.assertEqual(self.stop(), "")
+        self.spec(f"## 验收\n- [ ] [我] test\n\n## 进展\n{short}\n{long}\n# 附录\n")
+        self.assertIn("进展最后一行超过 200 字", self.stop())
+
+
 class HarnessTableTest(unittest.TestCase):
     MODULES = {
         "session_start": REPO / ".claude" / "hooks" / "session_start.py",
@@ -168,7 +213,7 @@ class HarnessTableTest(unittest.TestCase):
                 self.assertIn(function, defined[module])
                 self.assertEqual([name for name, names in defined.items()
                                   if name != module and function in names], [])
-        for copy in ("task_scope", "read_tasks", "spec_kind"):
+        for copy in ("task_scope", "read_tasks", "spec_kind", "spec_sections", "section_lines", "ready_to_close"):
             self.assertNotIn(copy, defined["stop_guard"])
 
 
