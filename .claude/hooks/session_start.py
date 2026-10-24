@@ -15,6 +15,7 @@ import time
 READY_LIMIT = 5
 ACTIVE_LIMIT = 10
 OWNER_LIMIT = 8
+CONCEPT_LIMIT = 20
 ARCHIVE_LIMIT = 1000
 STATUS = {"ready-for-agent", "in-progress", "done"}
 HEADER = re.compile(r"^([^:#：]+)[：:]\s*(.*)$")
@@ -22,6 +23,8 @@ CHECK = re.compile(r"^\s*-\s*\[([ xX])\]\s*\[(我|你)\]\s*(.*)$")
 NEXT = re.compile(r"(?:^|\|)\s*next[：:]\s*([^|]*)")
 BALL = re.compile(r"^(我|你|等)\s*[：:]\s*(.*)$")
 STAMP = re.compile(r"^\s*-\s*(\d{2})-(\d{2})\s+(\d{2}):(\d{2})\b")
+FENCE = re.compile(r"\s*(`{3,}|~{3,})")
+CORE_TABLE = "docs/rules/core-judgments.md"
 
 
 def project_roots(cwd):
@@ -80,6 +83,32 @@ def task_scope(root, value):
     return "/".join(parts) + "/", path
 
 
+def spec_sections(lines):
+    """List (line index, title, body) per `## ` heading; a body runs to the next `## ` or `# ` heading."""
+    sections = []
+    body = None
+    for index, line in enumerate(lines):
+        if line.startswith("## "):
+            body = []
+            sections.append((index, line[3:].strip(), body))
+        elif line.startswith("# "):
+            body = None
+        elif body is not None:
+            body.append(line)
+    return sections
+
+
+def section_lines(sections, name):
+    """Non-blank lines of every section whose title starts with name, in order."""
+    return [line for _, title, body in sections if title.startswith(name) for line in body if line.strip()]
+
+
+def ready_to_close(task):
+    """待结案: the Task has [我] checks and every one is ticked."""
+    mine = [checked for checked, actor, _ in task["checks"] if actor == "我"]
+    return bool(mine) and all(mine)
+
+
 def read_task(spec, root):
     """Parse one Task. A bad spec raises so callers skip only that Task."""
     spec = Path(spec)
@@ -106,23 +135,15 @@ def read_task(spec, root):
     scope_value = scope = None
     if "Scope" in fields:
         scope_value, scope = task_scope(root, fields["Scope"])
-    progress = ""
-    takeovers = []
+    sections = spec_sections(lines[body:])
     checks = []
-    section = ""
-    for line in lines[body:]:
-        if line.startswith("## "):
-            section = "checks" if line.startswith("## 验收") else "progress" if line.startswith("## 进展") else ""
-        elif line.startswith("# "):
-            section = ""
-        elif section == "checks":
-            match = CHECK.fullmatch(line)
-            if match and not re.fullmatch(r"<[^<>]*>", match.group(3).strip()):
-                checks.append((match.group(1).lower() == "x", match.group(2), match.group(3).strip()))
-        elif section == "progress" and line.strip():
-            progress = line.strip()
-            if "接手自 " in line:
-                takeovers.append(line)
+    for line in section_lines(sections, "验收"):
+        match = CHECK.fullmatch(line)
+        if match and not re.fullmatch(r"<[^<>]*>", match.group(3).strip()):
+            checks.append((match.group(1).lower() == "x", match.group(2), match.group(3).strip()))
+    progress_lines = section_lines(sections, "进展")
+    progress = progress_lines[-1].strip() if progress_lines else ""
+    takeovers = [line for line in progress_lines if "接手自 " in line]
     next_match = NEXT.search(progress)
     next_text = next_match.group(1).strip() if next_match else ""
     ball_match = BALL.fullmatch(next_text)
@@ -131,11 +152,34 @@ def read_task(spec, root):
         next_text = ball_match.group(2).strip()
     return {
         "name": spec.parent.name, "status": status, "session": fields.get("会话", ""),
+        "kind": fields.get("类型", ""),
         "scope": scope, "scope_value": scope_value, "progress": progress,
         "takeovers": takeovers,
         "ball": ball, "next": next_text, "checks": checks,
         "spec": spec, "mtime_ns": spec.stat().st_mtime_ns,
     }
+
+
+def task_at(folder, root):
+    """Return the Task a .scratch folder holds, or None when the folder is not a Task."""
+    if not folder.is_dir() or folder.is_symlink():
+        return None
+    try:
+        task = read_task(folder / "spec.md", root)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if "\n" in task["name"] or "\r" in task["name"]:
+        return None
+    return task
+
+
+def read_tasks(root):
+    """Return the Tasks directly under .scratch (not archived), by folder name."""
+    scratch = Path(root) / ".scratch"
+    if scratch.is_symlink() or not scratch.is_dir():
+        return []
+    return [task for folder in sorted(scratch.iterdir())
+            if folder.name != "archive" and (task := task_at(folder, root)) is not None]
 
 
 def session_matches(value, session_id):
@@ -174,15 +218,7 @@ def load_tasks(root):
     if scratch.is_symlink() or not scratch.is_dir():
         return [], [], []
     active, ready, archived = [], [], []
-    for path in sorted(scratch.iterdir()):
-        if path.name == "archive" or not path.is_dir() or path.is_symlink():
-            continue
-        try:
-            task = read_task(path / "spec.md", root)
-        except (OSError, UnicodeError, ValueError):
-            continue
-        if "\n" in task["name"] or "\r" in task["name"]:
-            continue
+    for task in read_tasks(root):
         if task["status"] == "ready-for-agent":
             ready.append(task["name"])
         else:
@@ -196,13 +232,35 @@ def load_tasks(root):
             scanned += 1
             if scanned > ARCHIVE_LIMIT:
                 break
-            try:
-                task = read_task(path / "spec.md", root)
-            except (OSError, UnicodeError, ValueError):
-                continue
-            if "\n" not in task["name"] and "\r" not in task["name"]:
+            task = task_at(path, root)
+            if task is not None:
                 archived.append(task)
     return active, ready, archived
+
+
+def core_judgments(root):
+    """Name the concepts in the project's core-judgment table; "" when it is missing or lists none."""
+    try:
+        lines = (Path(root) / CORE_TABLE).read_text(encoding="utf-8").splitlines()
+        names = []
+        fence = ""
+        for line in lines:
+            match = FENCE.match(line)
+            if fence:
+                # Only a run of the same character, at least as long, closes the open fence.
+                if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) \
+                        and not line.strip().strip(fence[0]):
+                    fence = ""
+            elif match:
+                fence = match.group(1)
+            elif line.startswith("## ") and line[3:].strip():
+                names.append(line[3:].strip())
+    except Exception:
+        return ""
+    if not names:
+        return ""
+    more = f" 等 {len(names)} 个" if len(names) > CONCEPT_LIMIT else ""
+    return f"[harness] 核心判断表 {CORE_TABLE}:{'、'.join(names[:CONCEPT_LIMIT])}{more};新写或改判断前先查表"
 
 
 def record_stamp(claim, kind, probe):
@@ -362,9 +420,8 @@ def board(root, session_id="", include_session=True):
                 except Exception:
                     pass
             when = f"{age(task, now)}前" if task["progress"] else "无进展"
-            mine = [checked for checked, actor, _ in task["checks"] if actor == "我"]
             ball = ("待归档" if task["status"] == "done" else
-                    "待结案" if mine and all(mine) else task["ball"])
+                    "待结案" if ready_to_close(task) else task["ball"])
             lines.append(f"- {task['name']} · {session} · {when} · {ball}: {task['next'][:80]}")
         if len(active) > ACTIVE_LIMIT:
             lines.append(f"- 等 {len(active)} 个")
@@ -472,6 +529,10 @@ def main():
         return
     context = board(root, session_id)
     if context:
+        # Only an already non-empty board carries the concept line: no Task, no bytes.
+        concepts = core_judgments(root)
+        if concepts:
+            context += "\n" + concepts
         return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}}
 
 

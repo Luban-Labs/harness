@@ -12,5 +12,6 @@
 | --- | --- |
 | 开始做或收一个 Task | docs/rules/harness.md |
 | 改动会改变已有的值、字段含义、规则、接口或判断(没建 Task 也算) | docs/rules/harness.md「改动的影响面」 |
+| 新写或改一个判断(是不是同一个 X、把 X 归一成键) | docs/rules/core-judgments.md |
 | [示例：改接口] | [替换为实际接口文档路径] |
 | [示例：改数据结构] | [替换为实际数据说明路径] |

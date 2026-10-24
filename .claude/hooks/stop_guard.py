@@ -31,28 +31,10 @@ def walk_error(error):
     raise error
 
 
-def task_scope(root, lines):
-    if not lines or not lines[0].startswith("Scope:"):
-        return None
-    value = lines[0][len("Scope:") :].strip()
-    trimmed = value.rstrip("/")
-    parts = trimmed.split("/")
-    if (
-        not trimmed
-        or value.startswith("/")
-        or "\\" in value
-        or any(part in ("", ".", "..") for part in parts)
-    ):
-        raise ValueError("invalid Scope")
-    path = root.joinpath(*parts).resolve()
-    path.relative_to(root)
-    if path.exists() and not path.is_dir():
-        raise ValueError("Scope is not a directory")
-    return path
-
-
 def reminder(task, busy):
     """Return the first applicable instruction for one claimed Task."""
+    from session_start import ready_to_close
+
     name = task["name"]
     if task["status"] == "done":
         source = shlex.quote(f".scratch/{name}")
@@ -68,8 +50,7 @@ def reminder(task, busy):
             "改写成 - [ ] [我] … / - [ ] [你] …;[我] 是你当场能演示并自验的,"
             "[你] 是只有 owner 能做或要 owner 看的。"
         )
-    mine = [check for check in checks if check[1] == "我"]
-    if mine and all(check[0] for check in mine):
+    if ready_to_close(task):
         return (
             f"[harness] Task {name} 的 [我] 验收项已全部勾上:现在做收件三问,"
             "改 Status: done 并归档;没勾的 [你] 项留在 spec 里,看板会继续列给 owner。"
@@ -109,44 +90,13 @@ def output_message(message, codex):
     }
 
 
-def read_tasks(root, read_task):
-    """Read non-archived Tasks, skipping only malformed specs."""
-    tasks = []
-    for folder in sorted((root / ".scratch").iterdir()):
-        if folder.name == "archive" or not folder.is_dir() or folder.is_symlink():
-            continue
-        spec = folder / "spec.md"
-        try:
-            task = read_task(spec, root)
-        except (OSError, UnicodeError, ValueError):
-            continue
-        if "\n" in task["name"] or "\r" in task["name"]:
-            continue
-        tasks.append(task)
-    return tasks
-
-
-def spec_kind(lines):
-    """Return the 类型 header value, or "" for a spec that predates the template."""
-    for line in lines[1:]:
-        if not line.strip() or line.startswith("#"):
-            break
-        match = re.match(r"^类型[：:]\s*(.*)$", line)
-        if match:
-            return match.group(1).strip()
-    return ""
-
-
 def spec_reminder(task, root, skeleton):
     """Collect all template violations for one parseable Task."""
+    from session_start import section_lines, spec_sections
+
     lines = task["spec"].read_text(encoding="utf-8").splitlines()
-    sections = [(i, line[3:].strip()) for i, line in enumerate(lines) if line.startswith("## ")]
-    progress = []
-    for index, (start, title) in enumerate(sections):
-        if title.startswith("进展"):
-            end = sections[index + 1][0] if index + 1 < len(sections) else len(lines)
-            progress = [line for line in lines[start + 1:end] if line.strip()]
-            break
+    sections = spec_sections(lines)
+    progress = section_lines(sections, "进展")
     problems = []
     if skeleton is not None:
         names = []
@@ -159,16 +109,16 @@ def spec_reminder(task, root, skeleton):
                 record_skips.add(names[-1])
             elif names and line.strip().startswith("<选填"):
                 optional.add(names[-1])
-        kind = spec_kind(lines)
+        kind = task["kind"]
         required = [name for name in names if name not in (optional if kind == "功能" else record_skips)]
         missing = [name for name in required
-                   if not any(title.startswith(name) for _, title in sections)]
+                   if not any(title.startswith(name) for _, title, _ in sections)]
         first_section = sections[0][0] if sections else len(lines)
         if not any(re.match(r"^目标[：:]", line) for line in lines[:first_section]):
             missing.insert(0, "目标")
         if missing:
             problems.append("缺必填节: " + "、".join(missing))
-        extra = [title for _, title in sections if not any(title.startswith(name) for name in names)]
+        extra = [title for _, title, _ in sections if not any(title.startswith(name) for name in names)]
         if extra:
             problems.append("骨架以外的节: " + "、".join(extra))
         placeholders = {line.strip() for line in skeleton if re.search(r"<[^<>]+>", line)}
@@ -199,7 +149,7 @@ def written_specs(payload, tasks, claimed):
         spec = task["spec"]
         if spec in owned or task["session"]:
             continue
-        if not spec_kind(spec.read_text(encoding="utf-8").splitlines()):
+        if not task["kind"]:
             continue
         # A spec untouched since this transcript began cannot carry this session's edits.
         if born is not None and spec.stat().st_mtime < born:
@@ -316,7 +266,13 @@ def main():
     if not cwd.is_dir():
         return
     # Import inside main so a missing or broken sibling hook also fails open.
-    from session_start import project_roots, read_task, session_matches, template_skeleton
+    from session_start import (
+        project_roots,
+        read_tasks,
+        session_matches,
+        task_scope,
+        template_skeleton,
+    )
 
     scan_root, task_root = project_roots(cwd)
     if task_root is None:
@@ -324,7 +280,7 @@ def main():
     scratch = task_root / ".scratch"
     if scratch.is_symlink():
         return
-    tasks = read_tasks(task_root, read_task)
+    tasks = read_tasks(task_root)
     session_id = payload.get("session_id")
     claimed = (
         [
@@ -362,7 +318,7 @@ def main():
     else:
         if scan_root is None or (scan_root / ".scratch").is_symlink():
             return
-        local_tasks = read_tasks(scan_root, read_task)
+        local_tasks = read_tasks(scan_root)
         selected = [task for task in local_tasks if task["status"] == "in-progress"]
     # A Task claimed by another session is not this session's to record.
     foreign = {task["spec"] for task in selected if not claimed and task["session"]}
@@ -371,7 +327,7 @@ def main():
         for task in selected:
             scope_value = task["scope_value"]
             scope = (
-                task_scope(scan_root, [f"Scope: {scope_value}"])
+                task_scope(scan_root, scope_value)[1]
                 if scope_value is not None
                 else None
             )

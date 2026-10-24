@@ -273,6 +273,31 @@ def _routing_table():
     return lines[heading] + "\n\n" + "\n".join(table) + "\n"
 
 
+def _route_target(row):
+    """Return the 读 cell of a Markdown table row."""
+    cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+    return cells[-1]
+
+
+def _missing_routes(text, routing_table):
+    """Return (insert line index, fixed rows) the first 路由表 of text lacks, matched by the 读 cell."""
+    table = [line for line in routing_table.splitlines() if line.startswith("|")]
+    lines = text.split("\n")
+    heading = next((i for i, line in enumerate(lines) if re.fullmatch(r"#{1,6}\s+路由表\s*", line)), None)
+    if heading is None:
+        return 0, []
+    start = heading + 1
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    end = start
+    while end < len(lines) and lines[end].startswith("|"):
+        end += 1
+    if end == start:
+        return heading + 1, ["", *table, ""]
+    present = {_route_target(line) for line in lines[start:end]}
+    return end, [row for row in table[2:] if _route_target(row) not in present]
+
+
 def _walk(root):
     """Return physical directories and files without following symlinks."""
     directories, files, links, forbidden = [], [], [], []
@@ -727,6 +752,11 @@ def _transform_agents(text, plan, routing_table):
             text = ""
     if not re.search(r"^#{1,6}\s+路由表\s*$", text, re.M):
         text = text.rstrip() + ("\n\n" if text.strip() else "") + routing_table
+    else:
+        index, rows = _missing_routes(text, routing_table)
+        if rows:
+            lines = text.split("\n")
+            text = "\n".join(lines[:index] + rows + lines[index:])
     if text and not text.endswith("\n"):
         text += "\n"
     return text
@@ -820,16 +850,23 @@ def _plan_install(plan):
     for src, rel in expected_files:
         if plan._safe_parents(plan.root / rel):
             base.copy(src, rel.as_posix())
-    decisions = plan.root / "docs/decisions.md"
-    scratch_keep = plan.root / ".scratch/.gitkeep"
-    for path in (decisions, scratch_keep):
+    created = {
+        plan.root / "docs/decisions.md": init.LEDGER,
+        plan.root / ".scratch/.gitkeep": "",
+    }
+    # The routing table copied from templates/AGENTS.md points at this file.
+    try:
+        created[plan.root / init.CORE_JUDGMENTS] = init.empty_core_judgments()
+    except (OSError, UnicodeError, ValueError) as exc:
+        plan.conflict(f"无法从 templates/core-judgments.md 读取空表: {exc}")
+    for path, content in created.items():
         if not plan._safe_parents(path):
             continue
         if path.is_symlink() or (path.exists() and not path.is_file()):
             plan.conflict(f"安装目标类型冲突: {plan._relative(path)}")
         else:
             rel = path.relative_to(plan.root).as_posix()
-            base.write_if_missing(rel, init.LEDGER if path == decisions else "")
+            base.write_if_missing(rel, content)
     skill = plan.root / ".agents/skills/interview-me"
     if plan._safe_parents(skill):
         base.copytree(HARNESS / ".agents/skills/interview-me", ".agents/skills/interview-me")
@@ -918,9 +955,11 @@ def _fully_migrated(root):
         problems.append("AGENTS.md")
     else:
         try:
-            if not re.search(r"^#{1,6}\s+路由表\s*$", agents.read_text(encoding="utf-8"), re.M):
+            text = agents.read_text(encoding="utf-8")
+            if (not re.search(r"^#{1,6}\s+路由表\s*$", text, re.M)
+                    or _missing_routes(text, _routing_table())[1]):
                 problems.append("AGENTS.md 路由表")
-        except (OSError, UnicodeError):
+        except (OSError, UnicodeError, ValueError):
             problems.append("AGENTS.md")
     for rel in (Path("docs/decisions.md"), Path(".scratch/.gitkeep")):
         path = root / rel
