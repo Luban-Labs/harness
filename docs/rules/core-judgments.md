@@ -49,3 +49,9 @@
 - 唯一实现:session_start.ready_to_close
 - 语义例外:无
 - 待收口:无
+
+## 项目代码目录
+- 定义:目录名是 `.scratch`、`.git`、`.claude`、`.codex` 或依赖与构建产物目录(`node_modules`、`.venv`、`venv`、`__pycache__`、`dist`、`build`、`.next`、`target`)的,其下不算项目代码;Stop 兜底找代码改动证据、同类判断提醒找新函数与同类都按它跳过。
+- 唯一实现:stop_evidence.excluded_dir
+- 语义例外:同类判断提醒另跳过测试目录与测试文件(judgment_twins.code_file),理由:测试函数名词多,和任何判断都撞,列出来全是噪音;Stop 兜底的改动证据仍算测试文件。
+- 待收口:无
