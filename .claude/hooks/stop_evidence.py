@@ -35,6 +35,11 @@ EXCLUDED = {
 
 
 
+def shown(text):
+    """Escape control and line-break characters so text echoed from a repo or record stays inside its one reminder line."""
+    return "".join(char if char.isprintable() else repr(char)[1:-1] for char in text)
+
+
 def excluded_dir(name):
     """Whether a directory holds no project code: the Task area, VCS, agent config, dependencies or build output."""
     return name in EXCLUDED

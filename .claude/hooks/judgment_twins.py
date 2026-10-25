@@ -122,11 +122,6 @@ def judgment_nouns(name):
             if word not in JUDGMENT_WORDS and word not in STOP_WORDS and len(word) > 1 and not word.isdigit()}
 
 
-def shown(text):
-    """Escape control and line-break characters so a path or name stays inside its one reminder line."""
-    return "".join(char if char.isprintable() else repr(char)[1:-1] for char in text)
-
-
 def locate(value, roots):
     """Return (file, worktree root, path inside it) for an absolute path in one of the repo's worktrees."""
     if not isinstance(value, str) or not Path(value).is_absolute():
@@ -228,6 +223,8 @@ def reminder(payload, cwd, root):
     Raises TimeoutError or subprocess.TimeoutExpired once the time budget is spent; the
     caller then drops the reminder.
     """
+    from stop_evidence import shown
+
     from session_start import CORE_TABLE, core_judgments
 
     transcript = payload.get("transcript_path")
@@ -262,8 +259,7 @@ def reminder(payload, cwd, root):
         listed = "、".join(shown(f"{twin}:{line} {defined}") for twin, line, defined in found[:TWIN_LIMIT])
         lines.append(
             f"[harness] 本轮新写的 {shown(name)}({where})像一个判断,库里已有同类:{listed}(共 {len(found)} 个)。"
-            "能复用就调用;现成的有毛病就修它;意思本来不同就另起名字、写理由"
-            "(docs/rules/harness.md「核心判断只写一份」)。"
+            "照 docs/rules/harness.md「核心判断只写一份」处理。"
         )
     if not lines:
         return None

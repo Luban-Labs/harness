@@ -12,8 +12,7 @@ from hook_support import REPO, HookCase
 
 SESSION = "cb260c48-3465-481c-9e57-cea155732e77"
 BASE = 1_900_000_000_000_000_000
-TAIL = ("能复用就调用;现成的有毛病就修它;意思本来不同就另起名字、写理由"
-        "(docs/rules/harness.md「核心判断只写一份」)。")
+TAIL = "照 docs/rules/harness.md「核心判断只写一份」处理。"
 EXISTING = {
     "backend/app/listing_traits.py": (
         "def section_identity(value):\n"
