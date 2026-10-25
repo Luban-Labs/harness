@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remind a session of its Task handoff, then check unrecorded code changes."""
+"""Remind a session of its Task handoff and unrecorded changes, and of look-alikes of new judgments."""
 
 import json
 import os
@@ -9,22 +9,6 @@ import shlex
 import sys
 
 sys.dont_write_bytecode = True
-
-
-EXCLUDED = {
-    ".scratch",
-    ".git",
-    ".claude",
-    ".codex",
-    "node_modules",
-    ".venv",
-    "venv",
-    "__pycache__",
-    "dist",
-    "build",
-    ".next",
-    "target",
-}
 
 
 def walk_error(error):
@@ -163,13 +147,9 @@ SCAN_BUDGET = 64 * 1024 * 1024
 
 def session_edits(payload):
     """Scan the newest 64 MB of this session's transcripts for files its edit tools wrote."""
-    from stop_evidence import edited_paths
+    from stop_evidence import edited_paths, session_records
 
-    transcript = Path(payload["transcript_path"])
-    sources = [transcript]
-    subagents = transcript.with_suffix("") / "subagents"
-    if subagents.is_dir():
-        sources.extend(subagents.rglob("*.jsonl"))
+    sources = session_records(payload["transcript_path"])
     sources.sort(key=lambda source: source.stat().st_mtime_ns, reverse=True)
     paths = set()
     budget = SCAN_BUDGET
@@ -183,7 +163,7 @@ def session_edits(payload):
 
 def legacy_reminder(payload, root, cwd, tasks, foreign=()):
     """Keep the existing code-change evidence and Scope selection behavior."""
-    from stop_evidence import transcript_evidence
+    from stop_evidence import excluded_dir, session_records, transcript_evidence
 
     if not tasks or root is None:
         return
@@ -208,7 +188,7 @@ def legacy_reminder(payload, root, cwd, tasks, foreign=()):
         return
     spec_mtime = spec.stat().st_mtime_ns
     if scope is not None and any(
-        part in EXCLUDED for part in scope.relative_to(root).parts
+        excluded_dir(part) for part in scope.relative_to(root).parts
     ):
         return
     candidates = {}
@@ -219,7 +199,7 @@ def legacy_reminder(payload, root, cwd, tasks, foreign=()):
         dirs[:] = [
             entry
             for entry in dirs
-            if entry not in EXCLUDED and not (Path(directory) / entry).is_symlink()
+            if not excluded_dir(entry) and not (Path(directory) / entry).is_symlink()
         ]
         for filename in files:
             count += 1
@@ -240,12 +220,7 @@ def legacy_reminder(payload, root, cwd, tasks, foreign=()):
         or not Path(transcript).is_file()
     ):
         return
-    transcript = Path(transcript)
-    sources = [transcript]
-    subagents = transcript.with_suffix("") / "subagents"
-    if subagents.is_dir():
-        sources.extend(subagents.rglob("*.jsonl"))
-    if any(transcript_evidence(source, spec_mtime, candidates) for source in sources):
+    if any(transcript_evidence(source, spec_mtime, candidates) for source in session_records(transcript)):
         return (
             f"[harness] Task {name} 本轮有代码改动但进展未更新:"
             f"在 .scratch/{name}/spec.md 的 ## 进展 末尾追加一行"
@@ -253,33 +228,20 @@ def legacy_reminder(payload, root, cwd, tasks, foreign=()):
         )
 
 
-def main():
-    payload = json.load(sys.stdin)
-    if not isinstance(payload, dict):
-        return
-    if payload.get("stop_hook_active", False) is not False:
-        return
-    cwd = payload.get("cwd", os.getcwd())
-    if not isinstance(cwd, str) or not cwd:
-        return
-    cwd = Path(cwd).resolve()
-    if not cwd.is_dir():
-        return
-    # Import inside main so a missing or broken sibling hook also fails open.
-    from session_start import (
-        project_roots,
-        read_tasks,
-        session_matches,
-        task_scope,
-        template_skeleton,
-    )
+def twin_reminder(payload, cwd, root):
+    """Point at existing look-alikes of judgments this turn wrote; any failure drops only this line."""
+    try:
+        from judgment_twins import reminder as twins
 
-    scan_root, task_root = project_roots(cwd)
-    if task_root is None:
-        return
-    scratch = task_root / ".scratch"
-    if scratch.is_symlink():
-        return
+        return twins(payload, cwd, root)
+    except Exception:
+        return None
+
+
+def task_reminder(payload, cwd, scan_root, task_root):
+    """Return this stop's Task reminders: claimed Tasks and written specs first, else the fallback."""
+    from session_start import read_tasks, session_matches, task_scope, template_skeleton
+
     tasks = read_tasks(task_root)
     session_id = payload.get("session_id")
     claimed = (
@@ -309,7 +271,7 @@ def main():
         edits = session_edits(payload)
         messages.extend(message for task, message in failing if task["spec"].resolve() in edits)
     if messages:
-        return output_message("\n".join(messages), "turn_id" in payload)
+        return "\n".join(messages)
 
     if len(claimed) > 1:
         return
@@ -332,9 +294,35 @@ def main():
                 else None
             )
             fallback.append((task["spec"], scope))
-    message = legacy_reminder(payload, scan_root, cwd, fallback, foreign)
-    if message:
-        return output_message(message, "turn_id" in payload)
+    return legacy_reminder(payload, scan_root, cwd, fallback, foreign)
+
+
+def main():
+    payload = json.load(sys.stdin)
+    if not isinstance(payload, dict):
+        return
+    if payload.get("stop_hook_active", False) is not False:
+        return
+    cwd = payload.get("cwd", os.getcwd())
+    if not isinstance(cwd, str) or not cwd:
+        return
+    cwd = Path(cwd).resolve()
+    if not cwd.is_dir():
+        return
+    # Import inside main so a missing or broken sibling hook also fails open.
+    from session_start import project_roots
+
+    scan_root, task_root = project_roots(cwd)
+    if task_root is None:
+        return
+    scratch = task_root / ".scratch"
+    if scratch.is_symlink():
+        return
+    # Task reminders and the twin reminder go out together, neither displacing the other.
+    messages = [message for message in (task_reminder(payload, cwd, scan_root, task_root),
+                                        twin_reminder(payload, cwd, task_root)) if message]
+    if messages:
+        return output_message("\n".join(messages), "turn_id" in payload)
 
 
 if __name__ == "__main__":

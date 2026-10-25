@@ -49,3 +49,21 @@
 - 唯一实现:session_start.ready_to_close
 - 语义例外:无
 - 待收口:无
+
+## 项目代码目录
+- 定义:目录名是 `.scratch`、`.git`、`.claude`、`.codex` 或依赖与构建产物目录(`node_modules`、`.venv`、`venv`、`__pycache__`、`dist`、`build`、`.next`、`target`)的,其下不算项目代码;Stop 兜底找代码改动证据、同类判断提醒找新函数与同类都按它跳过。
+- 唯一实现:stop_evidence.excluded_dir
+- 语义例外:同类判断提醒另跳过测试目录与测试文件(judgment_twins.code_file),理由:测试函数名词多,和任何判断都撞,列出来全是噪音;Stop 兜底的改动证据仍算测试文件。
+- 待收口:无
+
+## 本会话记录
+- 定义:Stop 输入的 `transcript_path` 那份记录,加上同名目录下 `subagents/` 里递归找到的全部 `.jsonl`;Stop 第 7 条取证、改动未记进展的兜底取证、同类判断提醒都只读这些。
+- 唯一实现:stop_evidence.session_records
+- 语义例外:无
+- 待收口:无
+
+## 本回合
+- 定义:Claude 记录里最后一条回合结束记录(`stop_hook_summary` 或 `turn_duration`,Stop hook 跑完后才写)之后,Codex 记录里最后一个 `task_started` 之后;回合中途到达的用户消息、任务通知、同伴消息都算本回合内。记录尾部没有边界时从读到的第一行算起。
+- 唯一实现:stop_evidence.turn_boundary
+- 语义例外:无
+- 待收口:无

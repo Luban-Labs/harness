@@ -227,6 +227,7 @@ class HarnessTableTest(unittest.TestCase):
         "session_start": REPO / ".claude" / "hooks" / "session_start.py",
         "stop_guard": REPO / ".claude" / "hooks" / "stop_guard.py",
         "stop_evidence": REPO / ".claude" / "hooks" / "stop_evidence.py",
+        "judgment_twins": REPO / ".claude" / "hooks" / "judgment_twins.py",
         "init": REPO / "init.py",
         "migrate_trellis": REPO / "migrate_trellis.py",
     }
@@ -246,7 +247,7 @@ class HarnessTableTest(unittest.TestCase):
                 self.assertIn(function, defined[module])
                 self.assertEqual([name for name, names in defined.items()
                                   if name != module and function in names], [])
-        for copy in ("task_scope", "read_tasks", "spec_kind", "spec_sections", "section_lines", "ready_to_close"):
+        for copy in ("task_scope", "read_tasks", "spec_kind", "spec_sections", "section_lines", "ready_to_close", "excluded_dir", "session_records", "turn_boundary"):
             self.assertNotIn(copy, defined["stop_guard"])
 
 

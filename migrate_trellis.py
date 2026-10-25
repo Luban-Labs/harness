@@ -845,6 +845,7 @@ def _plan_install(plan):
         (HARNESS / ".claude/hooks/session_start.py", Path(".claude/hooks/session_start.py")),
         (HARNESS / ".claude/hooks/stop_guard.py", Path(".claude/hooks/stop_guard.py")),
         (HARNESS / ".claude/hooks/stop_evidence.py", Path(".claude/hooks/stop_evidence.py")),
+        (HARNESS / ".claude/hooks/judgment_twins.py", Path(".claude/hooks/judgment_twins.py")),
     )
     base = init.Plan(plan.root)
     for src, rel in expected_files:
@@ -908,6 +909,7 @@ def _fully_migrated(root):
         (HARNESS / ".claude/hooks/session_start.py", Path(".claude/hooks/session_start.py")),
         (HARNESS / ".claude/hooks/stop_guard.py", Path(".claude/hooks/stop_guard.py")),
         (HARNESS / ".claude/hooks/stop_evidence.py", Path(".claude/hooks/stop_evidence.py")),
+        (HARNESS / ".claude/hooks/judgment_twins.py", Path(".claude/hooks/judgment_twins.py")),
     ):
         target = root / rel
         if (not _safe_without_follow(root, target) or target.is_symlink() or not target.is_file()

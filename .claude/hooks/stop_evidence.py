@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 import re
+import time
 from datetime import datetime, timezone
 
 
@@ -17,7 +18,26 @@ GIT_VALUES = {"-C", "-c", "--git-dir", "--work-tree", "--namespace",
 EDIT_TOOLS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path",
               "NotebookEdit": "notebook_path"}
 COMMAND_TOOLS = {"exec", "exec_command", "shell", "local_shell_call", "write_stdin", "js"}
+EXCLUDED = {
+    ".scratch",
+    ".git",
+    ".claude",
+    ".codex",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "dist",
+    "build",
+    ".next",
+    "target",
+}
 
+
+
+def excluded_dir(name):
+    """Whether a directory holds no project code: the Task area, VCS, agent config, dependencies or build output."""
+    return name in EXCLUDED
 
 def time_ns(value):
     if not isinstance(value, str):
@@ -253,17 +273,61 @@ def edited_paths(path, tail=None):
 
     With tail, read only the last that many bytes, starting at the next full line.
     """
+    edited = set()
+    for _, tool, data in successful_edits(path, tail)[0]:
+        if tool == "FileChange":
+            edited.update(change for change in data if isinstance(change, str))
+        elif isinstance(data.get(EDIT_TOOLS[tool]), str):
+            edited.add(data[EDIT_TOOLS[tool]])
+    return {Path(value).resolve() for value in edited if Path(value).is_absolute()}
+
+
+def session_records(transcript):
+    """List this session's records: the Stop input transcript, then every subagent record beside it."""
+    transcript = Path(transcript)
+    subagents = transcript.with_suffix("") / "subagents"
+    return [transcript, *(sorted(subagents.rglob("*.jsonl")) if subagents.is_dir() else ())]
+
+
+def turn_boundary(row):
+    """Whether the current turn runs after this row: a Claude end-of-turn record or a Codex task_started.
+
+    Claude writes stop_hook_summary and turn_duration once a turn ends, after its Stop hooks ran;
+    messages that arrive mid-turn (user, task notification, peer) are rows inside the turn.
+    """
+    if row.get("type") == "event_msg":
+        payload = row.get("payload")
+        return isinstance(payload, dict) and payload.get("type") == "task_started"
+    return row.get("type") == "system" and row.get("subtype") in ("stop_hook_summary", "turn_duration")
+
+
+def successful_edits(path, tail=None, turn=False, deadline=None):
+    """List (timestamp ns, tool, input) of successful edits in call order, and when the turn began.
+
+    A Claude edit tool counts once its result comes back without is_error; a Codex
+    item_completed FileChange counts as ("FileChange", changes). With tail, read only the
+    last that many bytes, starting at the next full line. With turn, keep only the edits
+    after the last turn boundary and return its timestamp (the first one read when the tail
+    holds no boundary); without turn the second value is None. Past a monotonic deadline,
+    raise TimeoutError.
+    """
+    tokens = ('"tool_use"', '"tool_result"', '"FileChange"') + (
+        ('"stop_hook_summary"', '"turn_duration"', '"task_started"') if turn else ())
     calls = {}
     done = set()
-    edited = set()
+    order = []
+    start = None
     with path.open("rb") as stream:
         size = path.stat().st_size
         if tail is not None and size > tail:
             stream.seek(size - tail)
             stream.readline()
-        for raw in stream:
+        for count, raw in enumerate(stream):
+            if deadline is not None and count % 1024 == 0 and time.monotonic() >= deadline:
+                raise TimeoutError("transcript scan ran out of time")
             line = raw.decode("utf-8", errors="replace")
-            if not any(token in line for token in ('"tool_use"', '"tool_result"', '"FileChange"')):
+            # Until a turn has a start, the first readable row supplies it.
+            if not any(token in line for token in tokens) and not (turn and start is None):
                 continue
             try:
                 row = json.loads(line)
@@ -271,6 +335,13 @@ def edited_paths(path, tail=None):
                 continue
             if not isinstance(row, dict):
                 continue
+            stamp = time_ns(row.get("timestamp"))
+            if turn:
+                if turn_boundary(row):
+                    order = []
+                    start = stamp
+                elif start is None:
+                    start = stamp
             message = row.get("message")
             content = message.get("content") if isinstance(message, dict) else None
             for item in content if isinstance(content, list) else ():
@@ -279,9 +350,10 @@ def edited_paths(path, tail=None):
                 if row.get("type") == "assistant" and item.get("type") == "tool_use":
                     data = item.get("input")
                     name = item.get("name")
-                    key = EDIT_TOOLS.get(name) if isinstance(name, str) else None
-                    if key and isinstance(data, dict) and isinstance(item.get("id"), str):
-                        calls[item["id"]] = data.get(key)
+                    if (isinstance(name, str) and name in EDIT_TOOLS and isinstance(data, dict)
+                            and isinstance(item.get("id"), str)):
+                        calls[item["id"]] = (stamp, name, data)
+                        order.append(item["id"])
                 elif (row.get("type") == "user" and item.get("type") == "tool_result"
                       and item.get("is_error") is not True
                       and isinstance(item.get("tool_use_id"), str)):
@@ -292,10 +364,17 @@ def edited_paths(path, tail=None):
                 item = payload.get("item")
                 if (isinstance(item, dict) and item.get("type") == "FileChange"
                         and isinstance(item.get("changes"), dict)):
-                    edited.update(change for change in item["changes"] if isinstance(change, str))
-    edited.update(value for call_id, value in calls.items()
-                  if call_id in done and isinstance(value, str))
-    return {Path(value).resolve() for value in edited if Path(value).is_absolute()}
+                    order.append((stamp, "FileChange", item["changes"]))
+    # A call id seen twice keeps its last input, listed once where it was first called.
+    listed = set()
+    edits = []
+    for entry in order:
+        if isinstance(entry, tuple):
+            edits.append(entry)
+        elif entry in done and entry not in listed:
+            listed.add(entry)
+            edits.append(calls[entry])
+    return edits, (start if turn else None)
 
 
 def transcript_evidence(path, spec_mtime, candidates):

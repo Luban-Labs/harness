@@ -1,6 +1,6 @@
 # Task 规则
 
-周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问)→ 按「何时建 Task」判,命中才建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 动手前清点影响面(新写或改判断先查核心判断表)→ 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件三问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID 与建 Task 命令、本会话认领的 Task、被别人接手的提示、「等你的事」、每个进行中 Task 一行(含认领会话在做、挂着还是断了)、待开工 Task 名,核心判断表有概念时末尾附一行概念清单(最多 20 个,超出写「等 N 个」);没有 in-progress(含已 done 未归档)、ready-for-agent 与「等你的事」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,对它们和本会话写过的 spec 查格式,每个用户回合最多提醒一次。
+周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问)→ 按「何时建 Task」判,命中才建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 动手前清点影响面(新写或改判断先查核心判断表)→ 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件三问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID 与建 Task 命令、本会话认领的 Task、被别人接手的提示、「等你的事」、每个进行中 Task 一行(含认领会话在做、挂着还是断了)、待开工 Task 名,核心判断表有概念时末尾附一行概念清单(最多 20 个,超出写「等 N 个」);没有 in-progress(含已 done 未归档)、ready-for-agent 与「等你的事」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,对它们和本会话写过的 spec 查格式,本轮新写的函数像判断且库里已有同类时点名这些同类,每个用户回合最多提醒一次。
 
 ## spec 格式
 
@@ -60,7 +60,7 @@
 ## 核心判断只写一份
 
 - 核心判断:被两处以上用来做决定的「是不是同一个 X」或「把 X 归一成可比的键」。项目在 docs/rules/core-judgments.md 维护一张表,每个概念一节:一句定义、唯一实现、语义例外、待收口的副本。项目有 CONTEXT.md 的,概念名沿用其中的词。
-- 新写或改一个判断前:先查表,再按概念(同义词、涉及的字段、被比较的值,不只函数名)全库找同类写法。有就调用它,不另写。
+- 新写或改一个判断前:先查表,再按概念(同义词、涉及的字段、被比较的值,不只函数名)全库找同类写法。有就调用它,不另写;写出名字像判断的新函数时,Stop 会点名库里的同类(见「Stop 提醒」的同类判断提醒),但它只按名字找,不能代替这一步。
 - 现成的有毛病:修现成那一份,修它算本次改动,按「改动的影响面」清点它的使用方。这次修不了,在表里记成待收口、在影响面写成已知差异;不在自己模块另写一份绕过去。
 - 使用方要的意思本来就不同(例如比价要不要把相邻区当同区):在表里写明例外和理由,另起名字,不复用原名。
 - 一个判断出现第二个使用方时登记进表。文档或注释里写着「这里另用一套」的,是待收口项,登记进表,不当成事实记录。
@@ -102,6 +102,8 @@
 
 另有兜底:本轮改了代码却没补进展时提醒补一行。认领恰好一个 Task 时对它判;认领多个时不判;没认领时读 cwd 所在工作树自己的 `.scratch`,只在恰好一个 in-progress,或 cwd 恰好落在一个 Task 的 Scope 内时判,选中的 Task 写了 `会话:` 就不提醒。单个 spec 解析不了只跳过它,不影响别的 Task 与兜底。证据只认 mtime 晚于 spec、且有本会话或其子代理直接证据的候选文件:晚于 spec 的成功编辑结果或 Codex FileChange,以及 mtime 落在调用至最后结果加 1ms 窗口内的点名文件命令或指定 git 工作区修改命令。Scope 落在排除目录(如 `.scratch`)内、纯删除、未点名命令、后台进程、独立 Codex 子线程、只改 spec 正文或项目超过 20000 个文件可能漏过。两个 hook 不读写 `.scratch/.session`。
 
+另有同类判断提醒,与有没有 Task、有没有认领无关,每次停下都查:本轮新写的函数名字像一个判断、cwd 所在 git 仓库里已有同类时,每个新函数一行列出同类的位置。证据只认本会话及其子代理记录末尾 8MB 里本轮的成功编辑(Claude 从上一回合的结束记录 `stop_hook_summary`/`turn_duration` 之后起,回合中途到达的消息、任务通知都算本轮;Codex 从最后一个 `task_started` 起;子代理只算本轮开始之后的),不看工作树里别人的改动:Edit 与 MultiEdit 的 new_string 有、old_string 没有的定义;Write 的内容里 HEAD 版本没有的定义;Codex FileChange 新增文件的定义与 update 里 `+` 行的定义(`-` 行也有的不算)。只看这个仓库及其 worktree 里的 `.py` `.js` `.jsx` `.ts` `.tsx` `.mjs` `.cjs`,测试文件(`tests/` `test/` `__tests__/` 下,或 `test_*.py` `*_test.py` `*-test.*` `*.test.*` `*.spec.*`)、`.scratch/` 下的文件(那里只放 spec 与归档材料)与超过 400 字的压缩长行不看。函数名按 snake_case 与 camelCase 拆词,含一个判断类词(same、match、key、normalize、identity、canonical、equal、compare、alias 等)和至少一个名词才算像判断;以动作动词(list、save、fetch、render、get、parse 等)或 test 开头的不算,判断类词只有 key 且是凭据、按键或存储用的键(api_key、keyDown、sort_key、cache_key)也不算。同类是 `git grep` 找到的、按同一口径像判断且名字含同一个名词的定义,不含测试文件、`.scratch/` 与它自己。每个新函数最多列 8 个同类(先每个文件各出一个再轮第二个,同一轮里公开名字排前)并写总数,一次最多讲 3 个新函数;项目核心判断表有概念时末尾让先对照表。它只提醒,不判对错、不复查后来改没改;用 shell 命令写的代码、不在 git 里、超过 1.5 秒或出错时不出这一项,也不影响别的提醒。
+
 ## 安装与升级
 
 - 两个 hook 脚本住在项目自己的 `.claude/hooks/`,`.codex/hooks` 是指过去的符号链接(init 会放好)。Claude 在 `.claude/settings.json` 中按以下片段配置,不设 `matcher`,保留现有其他配置:
@@ -117,5 +119,5 @@
 
 - Codex 在项目根 `.codex/hooks.json` 中按同一片段配置,command 改为 `python3 .codex/hooks/session_start.py` 与 `python3 .codex/hooks/stop_guard.py`(Codex 从项目根启动);Codex ≥0.153 从项目根到当前目录加载它。
 - Codex 的 hook 必须先被信任才会执行:init 装完会打印两条 `[hooks.state."<路径>:<事件>:0:0"]` 信任条目,追加到 `~/.codex/config.toml` 即可(信任按 hook 定义哈希:改脚本内容不用重信,改 command 或 timeout 要重信);也可在项目目录进 `codex` 跑一次 `/hooks`。仅做验证时可临时加 `--dangerously-bypass-hook-trust`,不得写进持久配置。
-- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py` 和 `docs/rules/harness.md`;init 会将这四个文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/SKILL.md`、`templates/spec.md`、`references/to-spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 解析(含 Task 目录、Scope 与类型)与 stop_evidence.py 的记录取证,三个脚本要同版本。项目里改过的文件不整篇覆盖:先 diff,只合入上游的改动,保留项目自己的行。项目 AGENTS.md 的路由表要有 templates/AGENTS.md 的每条固定路由(按「读」列认),升级时缺哪行照抄哪行,已有的不动;迁移会自动补齐。
+- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py`、`judgment_twins.py` 和 `docs/rules/harness.md`;init 会将这五个文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/SKILL.md`、`templates/spec.md`、`references/to-spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 解析(含 Task 目录、Scope 与类型)、stop_evidence.py 的记录取证与 judgment_twins.py 的同类判断提醒,四个脚本要同版本;只缺 judgment_twins.py 时其余提醒照常,只少这一项。项目里改过的文件不整篇覆盖:先 diff,只合入上游的改动,保留项目自己的行。项目 AGENTS.md 的路由表要有 templates/AGENTS.md 的每条固定路由(按「读」列认),升级时缺哪行照抄哪行,已有的不动;迁移会自动补齐。
 - `docs/rules/core-judgments.md` 归项目所有:init、迁移与升级时项目没有,就照 harness 的 `templates/core-judgments.md` 标记行之前的说明建空表;有了不动、不覆盖。
