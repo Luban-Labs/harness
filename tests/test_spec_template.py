@@ -372,6 +372,11 @@ class SpecTemplateTest(HookCase):
             "- 不改 section_identity(见 notes.md)",
             "- 不改 section_identity(https://example.com/issues/1)",
             "- 不改 section_identity\n  出处:owner 当面确认",
+            "- 不改 section_identity(10-23 实测)",
+            "- 不改 section_identity(cccce52 的理由)",
+            "- 不改 section_identity(见记忆 no-unrequested-guard-rules)",
+            "- 不改 section_identity(出处:design-C 不做项)",
+            "- 不改 section_identity。出处：总设计定稿。",
             "无",
             "- 无",
         )
@@ -386,6 +391,8 @@ class SpecTemplateTest(HookCase):
              "「不做」有 1 项没写出处(owner 原话、已验证的失败或文档位置):「不改 listing_traits.section_iden」"),
             ("- 不改 a\n- 已验证:不改 b\n- 不改 c\n  理由:太大",
              "「不做」有 2 项没写出处(owner 原话、已验证的失败或文档位置):「不改 a」、「不改 c 理由:太大」"),
+            ("- 不改 a(出处:我推的)\n- 不改 b(20261025)\n- 不改 c(出处:<待补>)",
+             "「不做」有 3 项没写出处"),
         ):
             with self.subTest(item=item):
                 self.reset_root()

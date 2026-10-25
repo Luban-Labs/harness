@@ -76,9 +76,13 @@ def output_message(message, codex):
 
 # A 「不做」 item cites a source when it names the owner, quotes words, says verified, or points at a file or URL.
 SOURCE = re.compile(
-    r"owner|原话|「[^」]+」|已验证|https?://"
+    r"owner|原话|「[^」]+」|已验证|实测|记忆|https?://"
     r"|[A-Za-z0-9_.~-]+/[A-Za-z0-9_.-]"
-    r"|[A-Za-z0-9_-]\.[A-Za-z][A-Za-z0-9]{0,4}(?![A-Za-z0-9_])",
+    r"|[A-Za-z0-9_-]\.[A-Za-z][A-Za-z0-9]{0,4}(?![A-Za-z0-9_])"
+    # A commit hash: 7-40 hex digits with both a letter and a digit, so dates and words do not count.
+    r"|(?<![0-9A-Za-z])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}(?![0-9A-Za-z])"
+    # A named source after 出处:, unless it starts as a guess, a placeholder or nothing.
+    r"|出处[:：]\s*(?![我推猜无待<\s])\S{2}",
     re.IGNORECASE,
 )
 
