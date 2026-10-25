@@ -122,6 +122,11 @@ def judgment_nouns(name):
             if word not in JUDGMENT_WORDS and word not in STOP_WORDS and len(word) > 1 and not word.isdigit()}
 
 
+def shown(text):
+    """Escape control and line-break characters so a path or name stays inside its one reminder line."""
+    return "".join(char if char.isprintable() else repr(char)[1:-1] for char in text)
+
+
 def locate(value, roots):
     """Return (file, worktree root, path inside it) for an absolute path in one of the repo's worktrees."""
     if not isinstance(value, str) or not Path(value).is_absolute():
@@ -135,22 +140,23 @@ def locate(value, roots):
 
 def new_functions(payload, roots, deadline):
     """List (file, relative path, name) of definitions this turn's successful edits added, in order."""
-    from stop_evidence import successful_edits
+    from stop_evidence import session_records, successful_edits
 
-    transcript = Path(payload["transcript_path"])
-    edits, start = successful_edits(transcript, tail=TURN_BUDGET, turn=True)
-    subagents = transcript.with_suffix("") / "subagents"
-    if start is not None and subagents.is_dir():
-        for source in sorted(subagents.rglob("*.jsonl")):
+    transcript, *subagents = session_records(payload["transcript_path"])
+    edits, start = successful_edits(transcript, tail=TURN_BUDGET, turn=True, deadline=deadline)
+    if start is not None:
+        for source in subagents:
             if time.monotonic() >= deadline:
                 raise TimeoutError("judgment twin check ran out of time")
             # A subagent counts only for what it did after this turn opened.
             if source.stat().st_mtime_ns >= start:
-                edits.extend(edit for edit in successful_edits(source, tail=TURN_BUDGET)[0]
+                edits.extend(edit for edit in successful_edits(source, tail=TURN_BUDGET, deadline=deadline)[0]
                              if edit[0] is not None and edit[0] >= start)
     found = []
     seen = set()
     for _, tool, data in edits:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("judgment twin check ran out of time")
         # (path, new text, old text); old None means the version in HEAD.
         pieces = []
         if tool == "FileChange":
@@ -252,10 +258,10 @@ def reminder(payload, cwd, root):
             number = next((line for line, defined in definitions(text, path.suffix) if defined == name), None)
         except OSError:
             number = None
-        where = relative if number is None else f"{relative}:{number}"
-        listed = "、".join(f"{twin}:{line} {defined}" for twin, line, defined in found[:TWIN_LIMIT])
+        where = shown(relative if number is None else f"{relative}:{number}")
+        listed = "、".join(shown(f"{twin}:{line} {defined}") for twin, line, defined in found[:TWIN_LIMIT])
         lines.append(
-            f"[harness] 本轮新写的 {name}({where})像一个判断,库里已有同类:{listed}(共 {len(found)} 个)。"
+            f"[harness] 本轮新写的 {shown(name)}({where})像一个判断,库里已有同类:{listed}(共 {len(found)} 个)。"
             "能复用就调用;现成的有毛病就修它;意思本来不同就另起名字、写理由"
             "(docs/rules/harness.md「核心判断只写一份」)。"
         )

@@ -147,13 +147,9 @@ SCAN_BUDGET = 64 * 1024 * 1024
 
 def session_edits(payload):
     """Scan the newest 64 MB of this session's transcripts for files its edit tools wrote."""
-    from stop_evidence import edited_paths
+    from stop_evidence import edited_paths, session_records
 
-    transcript = Path(payload["transcript_path"])
-    sources = [transcript]
-    subagents = transcript.with_suffix("") / "subagents"
-    if subagents.is_dir():
-        sources.extend(subagents.rglob("*.jsonl"))
+    sources = session_records(payload["transcript_path"])
     sources.sort(key=lambda source: source.stat().st_mtime_ns, reverse=True)
     paths = set()
     budget = SCAN_BUDGET
@@ -167,7 +163,7 @@ def session_edits(payload):
 
 def legacy_reminder(payload, root, cwd, tasks, foreign=()):
     """Keep the existing code-change evidence and Scope selection behavior."""
-    from stop_evidence import excluded_dir, transcript_evidence
+    from stop_evidence import excluded_dir, session_records, transcript_evidence
 
     if not tasks or root is None:
         return
@@ -224,12 +220,7 @@ def legacy_reminder(payload, root, cwd, tasks, foreign=()):
         or not Path(transcript).is_file()
     ):
         return
-    transcript = Path(transcript)
-    sources = [transcript]
-    subagents = transcript.with_suffix("") / "subagents"
-    if subagents.is_dir():
-        sources.extend(subagents.rglob("*.jsonl"))
-    if any(transcript_evidence(source, spec_mtime, candidates) for source in sources):
+    if any(transcript_evidence(source, spec_mtime, candidates) for source in session_records(transcript)):
         return (
             f"[harness] Task {name} 本轮有代码改动但进展未更新:"
             f"在 .scratch/{name}/spec.md 的 ## 进展 末尾追加一行"

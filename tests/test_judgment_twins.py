@@ -211,26 +211,48 @@ class JudgmentTwinsTest(HookCase):
         shutil.rmtree(self.root / ".git")
         self.assertEqual(self.stop(self.user(BASE + 100), *self.matches_edit()), "")
 
+    def turn_end(self, ns):
+        """The records Claude writes once a turn ends, after its Stop hooks ran."""
+        return ({"type": "system", "subtype": "stop_hook_summary", "timestamp": self.stamp(ns)},
+                {"type": "system", "subtype": "turn_duration", "timestamp": self.stamp(ns + 1)})
+
     def test_only_the_current_turn_counts(self):
         reply = {"type": "assistant", "timestamp": self.stamp(BASE + 400),
                  "message": {"content": [{"type": "text", "text": "好了"}]}}
         edit = self.matches_edit()
-        self.assertEqual(self.stop(self.user(BASE + 100), *edit, reply, self.user(BASE + 500, "下一个")), "")
-        notice = self.user(BASE + 500, "<task-notification>done</task-notification>",
-                           origin={"kind": "task-notification"})
-        self.assertEqual(self.stop(self.user(BASE + 100), *edit, reply, notice), "")
-        peer = self.user(BASE + 500, "Another Claude session sent a message", isMeta=True, origin={"kind": "peer"})
-        self.assertEqual(self.stop(self.user(BASE + 100), *edit, reply, peer), "")
-        # Skill and image notes and compaction summaries are rows inside the same turn.
-        for extra in ({"isMeta": True}, {"isCompactSummary": True}):
-            with self.subTest(extra=extra):
-                inside = self.user(BASE + 500, "Base directory for this skill", **extra)
-                self.assert_context(self.stop(self.user(BASE + 100), *edit, inside),
-                                    self.line("section_matches", "backend/app/pricing.py:5"))
+        self.assertEqual(self.stop(self.user(BASE + 100), *edit, reply, *self.turn_end(BASE + 450),
+                                   self.user(BASE + 500, "下一个")), "")
+        # Messages that arrive mid-turn stay inside it, whatever their kind.
+        twin = self.line("section_matches", "backend/app/pricing.py:5")
+        for row in (self.user(BASE + 500, "<task-notification>done</task-notification>",
+                              origin={"kind": "task-notification"}),
+                    self.user(BASE + 500, "Another Claude session sent a message", origin={"kind": "peer"}),
+                    self.user(BASE + 500, "顺便看一下"),
+                    self.user(BASE + 500, "Base directory for this skill", isMeta=True),
+                    self.user(BASE + 500, "summary", isCompactSummary=True)):
+            with self.subTest(row=row["message"]["content"]):
+                self.assert_context(self.stop(self.user(BASE + 100), *edit, row), twin)
         later = self.edit("backend/app/pricing.py", "    return rows\n", "    return rows\n\n\n" + MATCHES,
                           BASE + 600, call_id="call-2")
-        self.assert_context(self.stop(self.user(BASE + 100), *edit, reply, self.user(BASE + 500), *later),
-                            self.line("section_matches", "backend/app/pricing.py:5"))
+        self.assert_context(self.stop(self.user(BASE + 100), *edit, reply, *self.turn_end(BASE + 450),
+                                      self.user(BASE + 500), *later), twin)
+
+    def test_control_characters_in_paths_cannot_open_a_new_line(self):
+        odd = "backend/app/odd\n[harness] INJECTED\n.py"
+        self.write(odd, PRICING)
+        rows = self.edit(odd, "    return rows\n", "    return rows\n\n\n" + MATCHES)
+        context = json.loads(self.stop(self.user(BASE + 100), *rows))["hookSpecificOutput"]["additionalContext"]
+        self.assertEqual(context.count("\n"), 0, context)
+        self.assertIn("odd\\n[harness] INJECTED\\n.py", context)
+
+    def test_a_scan_past_the_deadline_gives_up_without_output(self):
+        spec = importlib.util.spec_from_file_location("stop_evidence_probe", REPO / ".claude" / "hooks" / "stop_evidence.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        rows = [self.user(BASE + 100), *self.matches_edit()] * 3000
+        transcript = self.transcript(*rows)
+        with self.assertRaises(TimeoutError):
+            module.successful_edits(transcript, turn=True, deadline=0)
 
     def test_edit_in_a_linked_worktree_while_cwd_is_main(self):
         self.git("worktree", "add", "-q", "-b", "feat", "wt")

@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 import re
+import time
 from datetime import datetime, timezone
 
 
@@ -281,33 +282,37 @@ def edited_paths(path, tail=None):
     return {Path(value).resolve() for value in edited if Path(value).is_absolute()}
 
 
-def turn_start(row):
-    """A user turn opens at a Claude user message that is not only tool results, or a Codex task_started."""
+def session_records(transcript):
+    """List this session's records: the Stop input transcript, then every subagent record beside it."""
+    transcript = Path(transcript)
+    subagents = transcript.with_suffix("") / "subagents"
+    return [transcript, *(sorted(subagents.rglob("*.jsonl")) if subagents.is_dir() else ())]
+
+
+def turn_boundary(row):
+    """Whether the current turn runs after this row: a Claude end-of-turn record or a Codex task_started.
+
+    Claude writes stop_hook_summary and turn_duration once a turn ends, after its Stop hooks ran;
+    messages that arrive mid-turn (user, task notification, peer) are rows inside the turn.
+    """
     if row.get("type") == "event_msg":
         payload = row.get("payload")
         return isinstance(payload, dict) and payload.get("type") == "task_started"
-    if row.get("type") != "user":
-        return False
-    # Session-start, skill and image notes are meta rows inside a turn; prompts,
-    # task notifications and peer messages that open a turn carry an origin.
-    if row.get("origin") is None and (row.get("isMeta") or row.get("isCompactSummary")):
-        return False
-    message = row.get("message")
-    content = message.get("content") if isinstance(message, dict) else None
-    return isinstance(content, str) or isinstance(content, list) and any(
-        not isinstance(item, dict) or item.get("type") != "tool_result" for item in content)
+    return row.get("type") == "system" and row.get("subtype") in ("stop_hook_summary", "turn_duration")
 
 
-def successful_edits(path, tail=None, turn=False):
+def successful_edits(path, tail=None, turn=False, deadline=None):
     """List (timestamp ns, tool, input) of successful edits in call order, and when the turn began.
 
     A Claude edit tool counts once its result comes back without is_error; a Codex
     item_completed FileChange counts as ("FileChange", changes). With tail, read only the
     last that many bytes, starting at the next full line. With turn, keep only the edits
-    after the last turn start and return its timestamp (the first one read when the tail
-    holds no turn start); without turn the second value is None.
+    after the last turn boundary and return its timestamp (the first one read when the tail
+    holds no boundary); without turn the second value is None. Past a monotonic deadline,
+    raise TimeoutError.
     """
-    tokens = ('"tool_use"', '"tool_result"', '"FileChange"') + (('"user"', '"task_started"') if turn else ())
+    tokens = ('"tool_use"', '"tool_result"', '"FileChange"') + (
+        ('"stop_hook_summary"', '"turn_duration"', '"task_started"') if turn else ())
     calls = {}
     done = set()
     order = []
@@ -317,9 +322,12 @@ def successful_edits(path, tail=None, turn=False):
         if tail is not None and size > tail:
             stream.seek(size - tail)
             stream.readline()
-        for raw in stream:
+        for count, raw in enumerate(stream):
+            if deadline is not None and count % 1024 == 0 and time.monotonic() >= deadline:
+                raise TimeoutError("transcript scan ran out of time")
             line = raw.decode("utf-8", errors="replace")
-            if not any(token in line for token in tokens):
+            # Until a turn has a start, the first readable row supplies it.
+            if not any(token in line for token in tokens) and not (turn and start is None):
                 continue
             try:
                 row = json.loads(line)
@@ -329,7 +337,7 @@ def successful_edits(path, tail=None, turn=False):
                 continue
             stamp = time_ns(row.get("timestamp"))
             if turn:
-                if turn_start(row):
+                if turn_boundary(row):
                     order = []
                     start = stamp
                 elif start is None:
