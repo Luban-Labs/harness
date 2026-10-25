@@ -402,6 +402,25 @@ class SpecTemplateTest(HookCase):
         self.root.joinpath(".agents/skills/interview-me/templates/spec.md").unlink()
         self.assertEqual(self.message(), "")
 
+    def test_a_huge_unsourced_item_is_checked_fast_and_keeps_other_problems(self):
+        import time
+        spec = self.ready_spec()
+        text = spec.read_text(encoding="utf-8").replace(NOT_DOING, "- 不改 " + "a" * 64000)
+        spec.write_text(text.replace("## 解法\n\n已填\n\n", ""), encoding="utf-8")
+        started = time.monotonic()
+        message = self.message()
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertIn("缺必填节: 解法", message)
+        self.assertIn("「不做」有 1 项没写出处", message)
+
+    def test_echoed_items_escape_control_characters(self):
+        spec = self.ready_spec()
+        spec.write_text(spec.read_text(encoding="utf-8").replace(NOT_DOING, "- 不改 \x1b[31m红\x1b[0m"),
+                        encoding="utf-8")
+        message = self.message()
+        self.assertIn("「不改 \\x1b[31m红\\x1b[0m」", message)
+        self.assertNotIn("\x1b", message)
+
     def test_new_judgment_line_is_a_placeholder_in_both_kinds(self):
         line = next(item for item in TEMPLATE.read_text(encoding="utf-8").splitlines()
                     if item.startswith("- 新写或改的判断:"))

@@ -122,11 +122,6 @@ def judgment_nouns(name):
             if word not in JUDGMENT_WORDS and word not in STOP_WORDS and len(word) > 1 and not word.isdigit()}
 
 
-def shown(text):
-    """Escape control and line-break characters so a path or name stays inside its one reminder line."""
-    return "".join(char if char.isprintable() else repr(char)[1:-1] for char in text)
-
-
 def locate(value, roots):
     """Return (file, worktree root, path inside it) for an absolute path in one of the repo's worktrees."""
     if not isinstance(value, str) or not Path(value).is_absolute():
@@ -228,6 +223,8 @@ def reminder(payload, cwd, root):
     Raises TimeoutError or subprocess.TimeoutExpired once the time budget is spent; the
     caller then drops the reminder.
     """
+    from stop_evidence import shown
+
     from session_start import CORE_TABLE, core_judgments
 
     transcript = payload.get("transcript_path")
