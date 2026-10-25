@@ -2,6 +2,7 @@
 """Read Task specs and show the current Task board; hook failures are silent."""
 
 import json
+import math
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,6 +26,37 @@ BALL = re.compile(r"^(我|你|等)\s*[：:]\s*(.*)$")
 STAMP = re.compile(r"^\s*-\s*(\d{2})-(\d{2})\s+(\d{2}):(\d{2})\b")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
 CORE_TABLE = "docs/rules/core-judgments.md"
+DSH_SESSION = re.compile(r"session-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\Z")
+
+
+def main_worktree(root):
+    """Return a backlink-verified main worktree for a .git file root."""
+    root = Path(root).resolve()
+    marker = root / ".git"
+    if not marker.is_file():
+        return None
+    try:
+        line = marker.read_text(encoding="utf-8").strip()
+        if not line.startswith("gitdir:"):
+            return None
+        gitdir = (root / line[len("gitdir:"):].strip()).resolve()
+        if gitdir.parent.name != "worktrees" or gitdir.parent.parent.name != ".git":
+            return None
+        main = gitdir.parent.parent.parent
+        backlink = gitdir / "gitdir"
+        commondir = gitdir / "commondir"
+        if not gitdir.is_dir() or not backlink.is_file():
+            return None
+        if (gitdir / backlink.read_text(encoding="utf-8").strip()).resolve() != marker.resolve():
+            return None
+        if (commondir.exists() or commondir.is_symlink()) and (
+            not commondir.is_file()
+            or (gitdir / commondir.read_text(encoding="utf-8").strip()).resolve() != (main / ".git").resolve()
+        ):
+            return None
+        return main
+    except (OSError, UnicodeError, ValueError):
+        return None
 
 
 def project_roots(cwd):
@@ -40,30 +72,11 @@ def project_roots(cwd):
             break
         if not marker.is_file():
             continue
-        try:
-            line = marker.read_text(encoding="utf-8").strip()
-            if not line.startswith("gitdir:"):
-                break
-            gitdir = (parent / line[len("gitdir:"):].strip()).resolve()
-            if gitdir.parent.name != "worktrees" or gitdir.parent.parent.name != ".git":
-                break
-            main = gitdir.parent.parent.parent
-            backlink = gitdir / "gitdir"
-            commondir = gitdir / "commondir"
-            if not gitdir.is_dir() or not backlink.is_file():
-                break
-            if (gitdir / backlink.read_text(encoding="utf-8").strip()).resolve() != marker.resolve():
-                break
-            if (commondir.exists() or commondir.is_symlink()) and (
-                not commondir.is_file()
-                or (gitdir / commondir.read_text(encoding="utf-8").strip()).resolve() != (main / ".git").resolve()
-            ):
-                break
+        main = main_worktree(parent)
+        if main is not None:
             scratch = main / ".scratch"
             if scratch.is_dir() and not scratch.is_symlink():
                 task_root = main
-        except (OSError, UnicodeError, ValueError):
-            pass
         break
     return scan_root, task_root
 
@@ -183,8 +196,17 @@ def read_tasks(root):
 
 
 def session_matches(value, session_id):
-    return bool(value and session_id and
-                (value == session_id or len(value) >= 8 and session_id.startswith(value)))
+    if not isinstance(value, str) or not isinstance(session_id, str) or not value or not session_id:
+        return False
+    if DSH_SESSION.fullmatch(session_id):
+        return bool(re.match(r"session-[0-9a-fA-F]{8}", value) and
+                    session_id.startswith(value))
+    return value == session_id or len(value) >= 8 and session_id.startswith(value)
+
+
+def session_short(value):
+    """Keep DSH's host marker and eight UUID digits in displayed claims."""
+    return value[:16] if re.match(r"session-[0-9a-fA-F]{8}(?:-|$)", value) else value[:8]
 
 
 def age(task, now):
@@ -266,26 +288,44 @@ def core_judgments(root):
 def record_stamp(claim, kind, probe):
     """Index each record tree once, then resolve full or prefix claims."""
     if kind not in probe["indexes"]:
-        root = probe["home"] / (".claude/projects" if kind == "claude" else ".codex/sessions")
-        pattern = "*/*.jsonl" if kind == "claude" else "**/rollout-*.jsonl"
         index = {}
-        try:
-            for path in root.glob(pattern):
+        if kind == "dsh":
+            for row in probe.get("dsh_session_records", ()):
                 if time.monotonic() >= probe["deadline"]:
                     break
-                match = (re.search(r"([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\.jsonl$", path.name)
-                         if kind == "codex" else None)
-                session_id = match.group(1) if match else path.stem if kind == "claude" else ""
-                if re.fullmatch(r"[A-Za-z0-9_-]{8,}", session_id):
-                    try:
-                        index[session_id] = max(index.get(session_id, 0), path.stat().st_mtime)
-                    except OSError:
-                        pass
-        except (OSError, ValueError):
-            pass
+                if not isinstance(row, dict) or row.get("parent_session_id") is not None:
+                    continue
+                session_id, stamp = row.get("session_id"), row.get("mtime")
+                if (isinstance(session_id, str) and DSH_SESSION.fullmatch(session_id)
+                        and type(stamp) in (int, float) and math.isfinite(stamp) and stamp > 0):
+                    index[session_id] = max(index.get(session_id, 0), stamp)
+        else:
+            root = probe["home"] / (".claude/projects" if kind == "claude" else ".codex/sessions")
+            pattern = "*/*.jsonl" if kind == "claude" else "**/rollout-*.jsonl"
+            try:
+                for path in root.glob(pattern):
+                    if time.monotonic() >= probe["deadline"]:
+                        break
+                    match = (re.search(r"([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\.jsonl$", path.name)
+                             if kind == "codex" else None)
+                    session_id = match.group(1) if match else path.stem if kind == "claude" else ""
+                    if re.fullmatch(r"[A-Za-z0-9_-]{8,}", session_id):
+                        try:
+                            index[session_id] = max(index.get(session_id, 0), path.stat().st_mtime)
+                        except OSError:
+                            pass
+            except (OSError, ValueError):
+                pass
         probe["indexes"][kind] = index
-    return max((stamp for session_id, stamp in probe["indexes"][kind].items()
-                if session_matches(claim, session_id)), default=None)
+    stamp = None
+    for session_id, candidate in probe["indexes"][kind].items():
+        if time.monotonic() >= probe["deadline"]:
+            return None
+        if session_matches(claim, session_id):
+            if kind == "dsh" and stamp is not None:
+                return None  # A short claim resolving to two top-level sessions is unknown.
+            stamp = max(stamp or 0, candidate)
+    return stamp
 
 
 def claim_state(claim, probe):
@@ -299,6 +339,12 @@ def claim_state(claim, probe):
     def hours(stamp):
         count = max(0, int((now - stamp) // 3600))
         return f"{count} 小时" if count else "不到 1 小时"
+
+    if probe["dsh_host"] and re.match(r"session-[0-9a-fA-F]{8}", claim):
+        stamp = record_stamp(claim, "dsh", probe)
+        if stamp is not None and time.monotonic() < probe["deadline"]:
+            cache[claim] = "在做" if now - stamp < 36000 else f"断了 {hours(stamp)}"
+        return cache[claim]
 
     matching = [row for row in probe["registrations"]
                 if session_matches(claim, row.get("sessionId"))]
@@ -352,7 +398,8 @@ def claim_state(claim, probe):
     return cache[claim]
 
 
-def board(root, session_id="", include_session=True):
+def board(root, session_id="", include_session=True, *, dsh_session_records=(),
+          allow_own=True, dsh_host=False):
     active, ready, archived = load_tasks(root)
     owner = [(task, task["next"], False) for task in active
              if task["status"] == "in-progress" and task["ball"] == "你"]
@@ -363,14 +410,19 @@ def board(root, session_id="", include_session=True):
         return ""
     lines = []
     if include_session and session_id:
-        lines.append(f"[harness] 本会话 ID: {session_id};开工或接手 Task 时写进它 spec 头部「会话:」行;建 Task 用 python3 .claude/hooks/session_start.py --new-task <名> --kind 功能|记录")
+        session_line = f"[harness] 本会话 ID: {session_id}"
+        if allow_own:
+            session_line += ";开工或接手 Task 时写进它 spec 头部「会话:」行;建 Task 用 python3 .claude/hooks/session_start.py --new-task <名> --kind 功能|记录"
+        lines.append(session_line)
         for task in active:
-            if (task["status"] == "in-progress" and task["session"]
+            if (allow_own and task["status"] == "in-progress" and task["session"]
                     and not session_matches(task["session"], session_id)
-                    and any(f"接手自 {session_id[:8]}" in row for row in task["takeovers"])):
-                lines.append(f"[harness] 你认领过的 Task {task['name']} 已被会话 {task['session'][:8]} 接手:别再改它的 spec 与代码;有话发消息给新会话(Claude 用 ListAgents),发不了就告诉 owner。")
+                    and any(session_matches(match.group(1), session_id)
+                            for row in task["takeovers"]
+                            if (match := re.search(r"接手自\s+([A-Za-z0-9_-]+)", row)))):
+                lines.append(f"[harness] 你认领过的 Task {task['name']} 已被会话 {session_short(task['session'])} 接手:别再改它的 spec 与代码;有话发消息给新会话(Claude 用 ListAgents),发不了就告诉 owner。")
         for task in active:
-            if task["status"] == "in-progress" and session_matches(task["session"], session_id):
+            if allow_own and task["status"] == "in-progress" and session_matches(task["session"], session_id):
                 lines.append(f"[harness] 本会话认领: {task['name']}(.scratch/{task['name']}/spec.md) 最近进展: {task['progress'] or '无进展'}")
     if owner:
         lines.append(f"[harness] 等你的事 {len(owner)} 条:")
@@ -409,9 +461,10 @@ def board(root, session_id="", include_session=True):
                 pass
         probe = {"home": home, "now": clock, "deadline": deadline,
                  "registrations": registrations, "valid_registrations": valid,
-                 "indexes": {}, "processes": {}, "states": {}}
+                 "indexes": {}, "processes": {}, "states": {},
+                 "dsh_session_records": dsh_session_records, "dsh_host": dsh_host}
         for task in active[:ACTIVE_LIMIT]:
-            session = f"会话 {task['session'][:8]}" if task["session"] else "无人认领"
+            session = f"会话 {session_short(task['session'])}" if task["session"] else "无人认领"
             if home and time.monotonic() < deadline and task["status"] == "in-progress" and task["session"]:
                 try:
                     state = claim_state(task["session"], probe)
@@ -510,7 +563,7 @@ def main():
             return
         _, root = project_roots(cwd)
         if root:
-            output = board(root, include_session=False)
+            output = board(root, include_session=False, dsh_host=os.environ.get("HARNESS_HOST") == "dsh")
             if output:
                 os.write(1, (output + "\n").encode("utf-8"))
         return
@@ -527,7 +580,14 @@ def main():
     _, root = project_roots(cwd)
     if root is None:
         return
-    context = board(root, session_id)
+    is_dsh = os.environ.get("HARNESS_HOST") == "dsh"
+    allow_own = not is_dsh or (
+        "dsh_parent_session_id" in payload and payload["dsh_parent_session_id"] is None
+        and DSH_SESSION.fullmatch(session_id) is not None
+    )
+    records = payload.get("dsh_session_records", ()) if is_dsh else ()
+    context = board(root, session_id, dsh_session_records=records if isinstance(records, list) else (),
+                    allow_own=allow_own, dsh_host=is_dsh)
     if context:
         # Only an already non-empty board carries the concept line: no Task, no bytes.
         concepts = core_judgments(root)

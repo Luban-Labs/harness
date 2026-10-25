@@ -23,6 +23,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from dsh.cc_hooks import trusted_project
+
 HARNESS = Path(__file__).resolve().parent
 HOOKS = ("session_start.py", "stop_guard.py", "stop_evidence.py", "judgment_twins.py")
 SKILL = "interview-me"
@@ -229,6 +231,9 @@ def main(argv):
     print("Codex 侧还要信任这两条 hook。把下面追加到 ~/.codex/config.toml(或在该目录进 codex 跑一次 /hooks):")
     for key, digest in codex_trust_entries(target / ".codex" / "hooks.json"):
         print(f'[hooks.state."{key}"]\ntrusted_hash = "{digest}"')
+    print("DSH: 按 docs/rules/harness.md「安装与升级」配置全局 Claude Code hook 调度器。")
+    if not trusted_project(target):
+        print("该项目尚未获 Claude Code 信任，DSH 调度器会跳过它的项目 hooks；先在目标目录完成 Claude Code 信任确认。")
     if not any(k.startswith("AGENTS.md") for k in plan.kept):
         print("然后打开 AGENTS.md 填全项目硬规则与路由表。")
     return 0

@@ -135,17 +135,18 @@ def locate(value, roots):
 
 def new_functions(payload, roots, deadline):
     """List (file, relative path, name) of definitions this turn's successful edits added, in order."""
-    from stop_evidence import session_records, successful_edits
+    from stop_evidence import dsh_host, dsh_successful_edits, evidence_sources, successful_edits
 
-    transcript, *subagents = session_records(payload["transcript_path"])
-    edits, start = successful_edits(transcript, tail=TURN_BUDGET, turn=True, deadline=deadline)
+    transcript, *subagents = evidence_sources(payload)
+    reader = dsh_successful_edits if dsh_host() else successful_edits
+    edits, start = reader(transcript, tail=TURN_BUDGET, turn=True, deadline=deadline)
     if start is not None:
         for source in subagents:
             if time.monotonic() >= deadline:
                 raise TimeoutError("judgment twin check ran out of time")
             # A subagent counts only for what it did after this turn opened.
             if source.stat().st_mtime_ns >= start:
-                edits.extend(edit for edit in successful_edits(source, tail=TURN_BUDGET, deadline=deadline)[0]
+                edits.extend(edit for edit in reader(source, tail=TURN_BUDGET, deadline=deadline)[0]
                              if edit[0] is not None and edit[0] >= start)
     found = []
     seen = set()
@@ -223,11 +224,11 @@ def reminder(payload, cwd, root):
     Raises TimeoutError or subprocess.TimeoutExpired once the time budget is spent; the
     caller then drops the reminder.
     """
-    from stop_evidence import shown
+    from stop_evidence import dsh_host, shown
 
     from session_start import CORE_TABLE, core_judgments
 
-    transcript = payload.get("transcript_path")
+    transcript = payload.get("dsh_transcript_path" if dsh_host() else "transcript_path")
     if not isinstance(transcript, str) or not transcript or not Path(transcript).is_file():
         return None
     deadline = time.monotonic() + TIME_BUDGET

@@ -2,6 +2,7 @@
 """Find direct evidence in Claude and Codex transcripts that this session changed a file."""
 
 import json
+import os
 from pathlib import Path
 import re
 import time
@@ -294,12 +295,33 @@ def session_records(transcript):
     return [transcript, *(sorted(subagents.rglob("*.jsonl")) if subagents.is_dir() else ())]
 
 
+def dsh_host():
+    return os.environ.get("HARNESS_HOST") == "dsh"
+
+
+def evidence_sources(payload):
+    if dsh_host():
+        return dsh_session_records(payload)
+    transcript = payload.get("transcript_path")
+    if not isinstance(transcript, str) or not transcript or not Path(transcript).is_file():
+        return []
+    return session_records(transcript)
+
+
 def turn_boundary(row):
-    """Whether the current turn runs after this row: a Claude end-of-turn record or a Codex task_started.
+    """True for a turn boundary, None for an invalid DSH start, otherwise False.
 
     Claude writes stop_hook_summary and turn_duration once a turn ends, after its Stop hooks ran;
     messages that arrive mid-turn (user, task notification, peer) are rows inside the turn.
+    DSH starts a turn explicitly and carries a stable seq/turn pair plus millisecond time.
     """
+    if row.get("type") == "turn/start":
+        data = row.get("data")
+        seq = row.get("seq")
+        stamp = row.get("time")
+        turn = data.get("turn") if isinstance(data, dict) else None
+        return (True if all(type(value) is int and value >= 0 for value in (seq, stamp, turn))
+                else None)
     if row.get("type") == "event_msg":
         payload = row.get("payload")
         return isinstance(payload, dict) and payload.get("type") == "task_started"
@@ -464,3 +486,214 @@ def transcript_evidence(path, spec_mtime, candidates):
     return any(command_evidence(command, start, codex_results[call_id], candidates)
                for call_id, (command, start) in codex_calls.items()
                if call_id in codex_results)
+
+
+DSH_EXIT = re.compile(r"\[exit code: (-?\d+)\]\s*$")
+DSH_TERMINATED = re.compile(
+    r"(?m)^\[(?:timed out after \d+ms|stopped: [^\n]*|killed by signal: [^\n]*|sandbox: [^\n]*)\]"
+    r"(?:\n\[[^\n]*\])*\s*$"
+)
+
+
+def dsh_records(path, tail=None, deadline=None):
+    """Read complete appended v4 zstd frames; reject damaged logs and unsupported runtimes."""
+    from compression import zstd  # Python 3.14; ImportError leaves evidence reminders silent.
+
+    raw = Path(path).read_bytes()
+    view = memoryview(raw)
+    spans = []
+    offset = 0
+    while offset < len(view):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("DSH transcript scan ran out of time")
+        size = zstd.get_frame_size(view[offset:])
+        if size <= 0 or offset + size > len(view):
+            raise ValueError("incomplete DSH frame")
+        spans.append((offset, size))
+        offset += size
+    if not spans:
+        raise ValueError("empty DSH transcript")
+    for index, (offset, size) in enumerate(spans):
+        if index and tail is not None and offset + size < len(view) - tail:
+            continue
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("DSH transcript scan ran out of time")
+        data = zstd.decompress(view[offset:offset + size]).decode("utf-8")
+        for line in data.splitlines():
+            if line:
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    raise ValueError("invalid DSH record")
+                yield row
+
+
+def dsh_header(path):
+    row = next(dsh_records(path, tail=0), None)
+    if (not isinstance(row, dict) or row.get("type") != "session"
+            or row.get("version") != 4 or not isinstance(row.get("id"), str)):
+        raise ValueError("unsupported DSH transcript")
+    return row
+
+
+def dsh_session_records(payload):
+    """The dispatcher-selected parent and only its descendants, checked by v4 headers."""
+    value = payload.get("dsh_transcript_path")
+    if not isinstance(value, str) or not value:
+        return []
+    main = Path(value)
+    header = dsh_header(main)
+    if header["id"] != payload.get("session_id"):
+        return []
+    children = payload.get("dsh_child_transcript_paths", [])
+    if not isinstance(children, list):
+        return [main]
+    pending = {}
+    for value in children:
+        if not isinstance(value, str) or not value:
+            continue
+        path = Path(value)
+        try:
+            child = dsh_header(path)
+        except (OSError, ValueError, ImportError):
+            continue
+        parent = child.get("parentSession")
+        if isinstance(parent, str) and parent:
+            pending[path] = (child["id"], parent)
+    selected = [main]
+    ids = {header["id"]}
+    while pending:
+        added = False
+        for path, (child_id, parent) in list(pending.items()):
+            if parent in ids:
+                selected.append(path)
+                ids.add(child_id)
+                del pending[path]
+                added = True
+        if not added:
+            break
+    return selected
+
+
+def dsh_calls(path, tail=None, turn=False, deadline=None):
+    """Return successful edit and command calls, plus the latest turn start, from one DSH log."""
+    header = None
+    calls = {}
+    results = {}
+    registered = set()
+    settled = {}
+    order = []
+    turn_start = None
+    for row in dsh_records(path, tail=tail, deadline=deadline):
+        kind = row.get("type")
+        if header is None:
+            if kind != "session" or row.get("version") != 4:
+                raise ValueError("unsupported DSH transcript")
+            header = row
+            continue
+        data = row.get("data")
+        if kind == "turn/start" and turn_boundary(row) is not True:
+            raise ValueError("invalid DSH turn start")
+        if not isinstance(data, dict):
+            continue
+        stamp = row.get("time")
+        stamp = stamp * 1_000_000 if isinstance(stamp, int) and not isinstance(stamp, bool) else None
+        if kind == "turn/start":
+            turn_start = stamp
+            if turn:
+                order = []
+        elif kind == "tool/call" and "surfaceOp" not in row:
+            call_id = data.get("callId")
+            name = data.get("name")
+            if not isinstance(call_id, str) or name not in ("write", "edit", "multi_edit", "notebook_edit", "bash"):
+                continue
+            arguments = data.get("arguments")
+            try:
+                arguments = json.loads(arguments) if isinstance(arguments, str) else arguments
+            except ValueError:
+                continue
+            if not isinstance(arguments, dict):
+                continue
+            calls[call_id] = (stamp, name, arguments, data.get("turn"))
+            order.append(call_id)
+        elif kind == "tool/result" and row.get("surfaceOp") == "append":
+            message = data.get("message")
+            if not isinstance(message, dict):
+                continue
+            call_id = message.get("toolCallId")
+            if not isinstance(call_id, str) or call_id not in calls:
+                continue
+            meta = data.get("meta")
+            path_value = meta.get("path") if isinstance(meta, dict) else None
+            text = ""
+            if calls[call_id][1] == "bash":
+                content = message.get("content")
+                text = "".join(piece.get("text", "") for piece in content
+                               if isinstance(piece, dict) and piece.get("type") == "text"
+                               and isinstance(piece.get("text"), str)) if isinstance(content, list) else ""
+            exit_code = DSH_EXIT.search(text)
+            success = (message.get("isError") is False
+                       and (exit_code is None or exit_code[1] == "0")
+                       and DSH_TERMINATED.search(text) is None)
+            results[call_id] = (stamp, success, path_value, data.get("turn"))
+        elif kind == "job/registered" and data.get("kind") == "bash":
+            tool_call = data.get("toolCall")
+            call_id = tool_call.get("callId") if isinstance(tool_call, dict) else None
+            if isinstance(call_id, str):
+                registered.add(call_id)
+        elif kind == "job/settled" and data.get("kind") == "bash":
+            tool_call = data.get("toolCall")
+            call_id = tool_call.get("callId") if isinstance(tool_call, dict) else None
+            if isinstance(call_id, str):
+                settled[call_id] = data.get("status") == "completed" and data.get("detail") == "exit code: 0"
+    if header is None:
+        raise ValueError("missing DSH header")
+    edits = []
+    commands = []
+    for call_id in order:
+        call = calls.get(call_id)
+        result = results.get(call_id)
+        if call is None or result is None:
+            continue
+        start, name, arguments, turn_number = call
+        end, success, path_value, result_turn = result
+        if start is None or end is None or end < start or turn_number != result_turn:
+            continue
+        if name == "bash":
+            success = success and settled.get(call_id, call_id not in registered)
+            if success:
+                commands.append((start, end, arguments.get("command")))
+        elif success:
+            key = "notebook_path" if name == "notebook_edit" else "file_path"
+            arguments = dict(arguments)
+            if isinstance(path_value, str) and path_value:
+                arguments[key] = path_value
+            edits.append((start, {"write": "Write", "edit": "Edit", "multi_edit": "MultiEdit",
+                                  "notebook_edit": "NotebookEdit"}[name], arguments))
+    return edits, commands, turn_start
+
+
+def dsh_successful_edits(path, tail=None, turn=False, deadline=None):
+    edits, _, start = dsh_calls(path, tail=tail, turn=turn, deadline=deadline)
+    return ([(stamp, name, data) for stamp, name, data in edits
+             if not turn or start is None or stamp >= start], start if turn else None)
+
+
+def dsh_edited_paths(path, tail=None):
+    edited = set()
+    for _, name, data in dsh_successful_edits(path, tail=tail)[0]:
+        value = data.get(EDIT_TOOLS[name])
+        if isinstance(value, str) and Path(value).is_absolute():
+            edited.add(Path(value).resolve())
+    return edited
+
+
+def dsh_transcript_evidence(path, spec_mtime, candidates):
+    if Path(path).stat().st_mtime_ns <= spec_mtime:
+        return False
+    edits, commands, _ = dsh_calls(path)
+    for stamp, name, data in edits:
+        value = data.get(EDIT_TOOLS[name])
+        if stamp > spec_mtime and candidate_path(value, candidates) is not None:
+            return True
+    return any(command_evidence(command, start, end, candidates)
+               for start, end, command in commands)

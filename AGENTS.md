@@ -13,3 +13,4 @@
 | 改 hook 脚本 | 先读 tests/，先跑 `python3 -m unittest discover -s tests -v` |
 | 给一个项目装 harness | `python3 init.py --help` |
 | 把一个 Trellis 项目迁到 harness | `python3 migrate_trellis.py --help` |
+| 改 DSH 调度器或核对 Claude Code hook 协议 | dsh/research_evidence.md |

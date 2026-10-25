@@ -29,11 +29,11 @@
 
 ## 开工与认领
 
-- 开工或接手时:首行改 `Status: in-progress`;头部写 `会话: <本会话 ID>`(以 SessionStart 注入的为准;Claude 没看到注入时读 `$CLAUDE_CODE_SESSION_ID`),已有就覆盖,一个 Task 只认最后写入的会话;验收段没有勾选框就先改写;末尾没有 `## 进展` 时建立空段,已有段不改。
+- 开工或接手时:首行改 `Status: in-progress`;头部写 `会话: <本会话 ID>`(以 SessionStart 注入的为准;Claude 没看到注入时读 `$CLAUDE_CODE_SESSION_ID`;DSH 取调度器注入的完整 `session-<UUID>`,没有会话环境变量可代替),已有就覆盖,一个 Task 只认最后写入的会话;验收段没有勾选框就先改写;末尾没有 `## 进展` 时建立空段,已有段不改。
 - 可以同时有多个 `in-progress` Task,各由认领它的会话负责。工人与子代理不认领、不写 spec,进展写进回报。
-- 看板在进行中 Task 的认领会话后标状态:「在做」进程在、10 小时内有动静;「挂着 N 小时」进程在、10 小时以上没动静;「断了 N 小时」进程不在(Codex 会话看记录:10 小时以上没写算断了)。找不到会话记录时不标。
-- 接手条件,中一条才接:owner 点名让你做;owner 在本会话说「继续」「接着做」,且看板上恰好一个「断了」的 Task(不止一个先问接哪个);它是「待结案」且已搁 1 小时以上。「在做」的不接,有事发消息给它(Claude 用 ListAgents 找到会话再 SendMessage;发不了就告诉 owner);「挂着」的要 owner 点名。
-- 接手五步:① 跑 `python3 .claude/hooks/session_start.py --board` 拿最新状态;② 头部 `会话:` 改成本会话,进展追加一行 `done: 接手自 <旧会话 ID 前 8 位>`;③ 盘现场:头部 `工作区:` 指的 worktree 看 `git status` 与 `git log`,旧会话派的 codex 工人还在跑就等它回包或停掉;④ 只读旧会话记录末尾(最后一条回复与最后几次工具调用,约 2K token;Claude 在 `~/.claude/projects/*/<ID>.jsonl`,Codex 在 `~/.codex/sessions/**/rollout-*<ID>*.jsonl`),没写进 spec 的决定补进正文;⑤ 从最后一行进展的球接着做。
+- 看板在进行中 Task 的认领会话后标状态:「在做」进程在、10 小时内有动静;「挂着 N 小时」进程在、10 小时以上没动静;「断了 N 小时」进程不在(Codex 与 DSH 会话看记录 mtime:10 小时以内算在做,以上算断了,不推断挂着)。找不到会话记录时不标。
+- 接手条件,中一条才接:owner 点名让你做;owner 在本会话说「继续」「接着做」,且看板上恰好一个「断了」的 Task(不止一个先问接哪个);它是「待结案」且已搁 1 小时以上。「在做」的不接,有事发消息给它(Claude 用 ListAgents 找到会话再 SendMessage;DSH 没有跨会话发消息工具时告诉 owner;其它发不了的也告诉 owner);「挂着」的要 owner 点名。
+- 接手五步:① 跑 `python3 .claude/hooks/session_start.py --board` 拿最新看板;DSH 的会话状态须看经调度器注入的看板,直调没有日志索引时不标状态,不要据此判为断了;② 头部 `会话:` 改成本会话,进展追加一行 `done: 接手自 <旧会话短 ID>`(Claude/Codex 取前 8 位,DSH 顶层保留 `session-` 再取 UUID 前 8 位);③ 盘现场:头部 `工作区:` 指的 worktree 看 `git status` 与 `git log`,旧会话派的 codex 工人还在跑就等它回包或停掉;④ 只读旧会话记录末尾(最后一条回复与最后几次工具调用,约 2K token;Claude 在 `~/.claude/projects/*/<ID>.jsonl`,Codex 在 `~/.codex/sessions/**/rollout-*<ID>*.jsonl`,DSH 在 `~/.dsh/sessions/*/<完整 ID>/session.v4.jsonl.zstd`,按 ID 跨目录找,用 Python ≥3.14 的 `compression.zstd` 只读解压;目录编码对应创建时 cwd,不是当前 cwd),没写进 spec 的决定补进正文;⑤ 从最后一行进展的球接着做。
 - 开 worktree 时在头部写 `工作区: <worktree 绝对路径>`,删 worktree 时去掉这行。
 - 看板提示「你认领过的 Task 已被会话 X 接手」时,不再改它的 spec 与代码;有话发消息给新会话(Claude 用 ListAgents),发不了就告诉 owner。
 - `Scope: <相对项目根的目录>` 只决定「改了代码却没补进展」兜底的走查范围;未写时按全项目。
@@ -88,7 +88,7 @@
 
 ## Stop 提醒
 
-`stop_hook_active` 为真时不提醒。对 `会话:` 与本会话 ID 相等(或为其不短于 8 位的前缀)的 Task 逐个判,命中第一条即止:
+`stop_hook_active` 为真时不提醒。DSH 调度器按日志 `turn/start` 记录用户回合,强制继续触发的 UserPromptSubmit 不重置;同回合已阻塞后传 true,硬上限仍是一回合一次,子代理不阻塞。对 `会话:` 与本会话 ID 相等(或为其不短于 8 位的前缀;DSH 顶层须含 `session-` 加至少 8 位 UUID)的 Task 逐个判,命中第一条即止:
 
 1. 已 `done` 仍在 `.scratch/` → 归档。
 2. 验收段没有带 `[我]`/`[你]` 的勾选框 → 改写。
@@ -102,11 +102,17 @@
 
 第 7 条另查没人认领、头部有 `类型:`、且本会话最近用编辑工具按完整路径写过的 spec(Edit、Write、MultiEdit、NotebookEdit 或 Codex FileChange;用 shell 命令写的不算;只看会话记录最新的 64MB);项目里没有模板文件时只查长度与 Scope。
 
+DSH 的取证只读调度器传来的 v4 zstd 日志路径,只算 append 的 tool/result,另核 Bash 退出码与终止标记;Python <3.14、版本不符或读不到时跳过依赖取证的提醒,不回显命令正文。
+
 另有兜底:本轮改了代码却没补进展时提醒补一行。认领恰好一个 Task 时对它判;认领多个时不判;没认领时读 cwd 所在工作树自己的 `.scratch`,只在恰好一个 in-progress,或 cwd 恰好落在一个 Task 的 Scope 内时判,选中的 Task 写了 `会话:` 就不提醒。单个 spec 解析不了只跳过它,不影响别的 Task 与兜底。证据只认 mtime 晚于 spec、且有本会话或其子代理直接证据的候选文件:晚于 spec 的成功编辑结果或 Codex FileChange,以及 mtime 落在调用至最后结果加 1ms 窗口内的点名文件命令或指定 git 工作区修改命令。Scope 落在排除目录(如 `.scratch`)内、纯删除、未点名命令、后台进程、独立 Codex 子线程、只改 spec 正文或项目超过 20000 个文件可能漏过。两个 hook 不读写 `.scratch/.session`。
 
 另有同类判断提醒,与有没有 Task、有没有认领无关,每次停下都查:本轮新写的函数名字像一个判断、cwd 所在 git 仓库里已有同类时,每个新函数一行列出同类的位置。证据只认本会话及其子代理记录末尾 8MB 里本轮的成功编辑(Claude 从上一回合的结束记录 `stop_hook_summary`/`turn_duration` 之后起,回合中途到达的消息、任务通知都算本轮;Codex 从最后一个 `task_started` 起;子代理只算本轮开始之后的),不看工作树里别人的改动:Edit 与 MultiEdit 的 new_string 有、old_string 没有的定义;Write 的内容里 HEAD 版本没有的定义;Codex FileChange 新增文件的定义与 update 里 `+` 行的定义(`-` 行也有的不算)。只看这个仓库及其 worktree 里的 `.py` `.js` `.jsx` `.ts` `.tsx` `.mjs` `.cjs`,测试文件(`tests/` `test/` `__tests__/` 下,或 `test_*.py` `*_test.py` `*-test.*` `*.test.*` `*.spec.*`)、`.scratch/` 下的文件(那里只放 spec 与归档材料)与超过 400 字的压缩长行不看。函数名按 snake_case 与 camelCase 拆词,含一个判断类词(same、match、key、normalize、identity、canonical、equal、compare、alias 等)和至少一个名词才算像判断;以动作动词(list、save、fetch、render、get、parse 等)或 test 开头的不算,判断类词只有 key 且是凭据、按键或存储用的键(api_key、keyDown、sort_key、cache_key)也不算。同类是 `git grep` 找到的、按同一口径像判断且名字含同一个名词的定义,不含测试文件、`.scratch/` 与它自己。每个新函数最多列 8 个同类(先每个文件各出一个再轮第二个,同一轮里公开名字排前)并写总数,一次最多讲 3 个新函数;项目核心判断表有概念时末尾让先对照表。它只提醒,不判对错、不复查后来改没改;用 shell 命令写的代码、不在 git 里、超过 1.5 秒或出错时不出这一项,也不影响别的提醒。
 
 ## 安装与升级
+
+- DSH 用全局 `~/.dsh/hooks/claude-code.json` 给 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop、SubagentStart、SubagentStop 各登记一条 `python3 "<harness 仓库绝对路径>/dsh/cc_hooks.py"`;从 profile 的 `cordis.patch.yml` 删除 `projectDir` 后重启 DSH。调度器每事件现读 CC 用户设置、受 CC 信任记录控制的项目设置和启用插件;不再在 DSH 配置手抄项目 hook。用户级配置由 owner 落盘,init 只打印说明与未信任提示。
+- DSH 调度器传 `HARNESS_HOST=dsh`、绝对 `CLAUDE_PROJECT_DIR` 和额外日志路径,`transcript_path` 仍为空。项目 settings 取启动目录,local settings 可按 CC 检查归主树,信任键先查 canonical 根再查启动路径祖先;hook 项目目录取该会话启动目录,不随 working_directory 改变。协议与本机 CC 证据见 harness 仓库 `dsh/research_evidence.md`。
+- DSH 桥接没有 PermissionRequest、PostToolUseFailure、PreCompact、SessionEnd、StopFailure、Notification 事件,这些 CC hook 不能运行;启用的 preset 还须能扫描 skill,只扫 `~/.dsh/skills` 的 preset 看不到项目 `.agents/skills`。
 
 - 两个 hook 脚本住在项目自己的 `.claude/hooks/`,`.codex/hooks` 是指过去的符号链接(init 会放好)。Claude 在 `.claude/settings.json` 中按以下片段配置,不设 `matcher`,保留现有其他配置:
 

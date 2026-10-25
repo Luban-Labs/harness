@@ -16,8 +16,15 @@ STOP_GUARD = REPO / ".claude" / "hooks" / "stop_guard.py"
 
 class HookCase(unittest.TestCase):
     def setUp(self):
+        self._new_root()
+
+    def _new_root(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        shell = Path(self.temp.name)
+        (shell / ".empty-scratch").mkdir()
+        (shell / ".scratch").symlink_to(".empty-scratch", target_is_directory=True)
+        self.root = shell / "project"
+        self.root.mkdir()
         self.home = self.root / "home"
         self.home.mkdir()
         (self.root / ".scratch").mkdir()
@@ -28,12 +35,7 @@ class HookCase(unittest.TestCase):
 
     def reset_root(self):
         self.temp.cleanup()
-        self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
-        self.home = self.root / "home"
-        self.home.mkdir()
-        (self.root / ".scratch").mkdir()
-        (self.root / ".git").mkdir()
+        self._new_root()
 
     def run_hook(self, script, payload=None, *, cwd=None, raw=None):
         if raw is None:

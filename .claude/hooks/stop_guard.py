@@ -158,7 +158,9 @@ def spec_reminder(task, root, skeleton):
 
 def written_specs(payload, tasks, claimed):
     """List unclaimed template specs this session may have edited, using cheap checks only."""
-    transcript = payload.get("transcript_path")
+    from stop_evidence import dsh_host
+
+    transcript = payload.get("dsh_transcript_path" if dsh_host() else "transcript_path")
     if not isinstance(transcript, str) or not transcript or not Path(transcript).is_file():
         return []
     born = getattr(Path(transcript).stat(), "st_birthtime", None)
@@ -182,23 +184,28 @@ SCAN_BUDGET = 64 * 1024 * 1024
 
 def session_edits(payload):
     """Scan the newest 64 MB of this session's transcripts for files its edit tools wrote."""
-    from stop_evidence import edited_paths, session_records
+    from stop_evidence import dsh_edited_paths, dsh_host, edited_paths, evidence_sources
 
-    sources = session_records(payload["transcript_path"])
+    sources = evidence_sources(payload)
     sources.sort(key=lambda source: source.stat().st_mtime_ns, reverse=True)
     paths = set()
     budget = SCAN_BUDGET
     for source in sources:
         if budget <= 0:
             break
-        paths |= edited_paths(source, tail=budget)
+        try:
+            paths |= (dsh_edited_paths(source, tail=budget) if dsh_host()
+                      else edited_paths(source, tail=budget))
+        except Exception:
+            continue
         budget -= source.stat().st_size
     return paths
 
 
 def legacy_reminder(payload, root, cwd, tasks, foreign=()):
     """Keep the existing code-change evidence and Scope selection behavior."""
-    from stop_evidence import excluded_dir, session_records, transcript_evidence
+    from stop_evidence import (dsh_host, dsh_transcript_evidence, evidence_sources,
+                               excluded_dir, transcript_evidence)
 
     if not tasks or root is None:
         return
@@ -248,14 +255,20 @@ def legacy_reminder(payload, root, cwd, tasks, foreign=()):
                 candidates[path.resolve()] = mtime
     if not candidates:
         return
-    transcript = payload.get("transcript_path")
-    if (
-        not isinstance(transcript, str)
-        or not transcript
-        or not Path(transcript).is_file()
-    ):
+    try:
+        sources = evidence_sources(payload)
+    except Exception:
         return
-    if any(transcript_evidence(source, spec_mtime, candidates) for source in session_records(transcript)):
+    if not sources:
+        return
+    for source in sources:
+        try:
+            evidenced = (dsh_transcript_evidence(source, spec_mtime, candidates) if dsh_host()
+                         else transcript_evidence(source, spec_mtime, candidates))
+        except Exception:
+            continue
+        if not evidenced:
+            continue
         return (
             f"[harness] Task {name} 本轮有代码改动但进展未更新:"
             f"在 .scratch/{name}/spec.md 的 ## 进展 末尾追加一行"
@@ -303,7 +316,10 @@ def task_reminder(payload, cwd, scan_root, task_root):
                if (message := spec_reminder(task, task_root, skeleton))]
     # Transcripts run to hundreds of MB: scan once, and only when some spec fails.
     if failing:
-        edits = session_edits(payload)
+        try:
+            edits = session_edits(payload)
+        except Exception:
+            edits = set()
         messages.extend(message for task, message in failing if task["spec"].resolve() in edits)
     if messages:
         return "\n".join(messages)
@@ -338,6 +354,9 @@ def main():
         return
     if payload.get("stop_hook_active", False) is not False:
         return
+    from stop_evidence import dsh_host
+    if dsh_host() and payload.get("dsh_parent_session_id", False) is not None:
+        return
     cwd = payload.get("cwd", os.getcwd())
     if not isinstance(cwd, str) or not cwd:
         return
@@ -357,7 +376,7 @@ def main():
     messages = [message for message in (task_reminder(payload, cwd, scan_root, task_root),
                                         twin_reminder(payload, cwd, task_root)) if message]
     if messages:
-        return output_message("\n".join(messages), "turn_id" in payload)
+        return output_message("\n".join(messages), dsh_host() or "turn_id" in payload)
 
 
 if __name__ == "__main__":

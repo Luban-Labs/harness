@@ -21,7 +21,7 @@
 - 待收口:无
 
 ## 认领
-- 定义:spec 的 `会话:` 与一个会话 ID 相等,或是它不短于 8 位的前缀,就算这个会话认领了该 Task;看板找认领会话的进程登记与会话记录也按这条配。
+- 定义:spec 的 `会话:` 与一个会话 ID 相等,或是它不短于 8 位的前缀,就算这个会话认领了该 Task;DSH 顶层 ID 的前缀须为 `session-` 加至少 8 位 UUID,裸 UUID 前缀和 `session-` 不认领;看板找认领会话的进程登记与会话记录也按这条配。
 - 唯一实现:session_start.session_matches
 - 语义例外:无
 - 待收口:无
@@ -30,6 +30,12 @@
 - 定义:从 cwd 往上第一个有 `.scratch/` 目录的是扫描根;cwd 在一个回链核实过的 git worktree 里、且主工作树有真 `.scratch/` 时,Task 根是主工作树,否则同扫描根;扫描根的 `.scratch` 是符号链接时没有 Task 根。
 - 唯一实现:session_start.project_roots
 - 语义例外:无
+- 待收口:无
+
+## Git 工作树回链
+- 定义:工作树的 `.git` 文件指向 `.git/worktrees/` 登记目录,登记的 gitdir 回指该文件,存在的 commondir 也指向主树 `.git`,才返回该主树。
+- 唯一实现:session_start.main_worktree
+- 语义例外:project_roots 还要求主树有真 `.scratch` 才将它作为 Task 根;CC 信任根解析直接用回链结果,不以 `.scratch` 为条件。
 - 待收口:无
 
 ## hook 已登记
@@ -57,13 +63,25 @@
 - 待收口:无
 
 ## 本会话记录
-- 定义:Stop 输入的 `transcript_path` 那份记录,加上同名目录下 `subagents/` 里递归找到的全部 `.jsonl`;Stop 第 7 条取证、改动未记进展的兜底取证、同类判断提醒都只读这些。
-- 唯一实现:stop_evidence.session_records
+- 定义:Claude/Codex 取 Stop 输入的 `transcript_path` 那份记录,加上同名目录下 `subagents/` 里递归找到的全部 `.jsonl`;DSH 只取调度器的 dsh_transcript_path 与 dsh_child_transcript_paths,核对 v4 header.id/parentSession;Stop 第 7 条取证、改动未记进展的兜底取证、同类判断提醒都只读这些。
+- 唯一实现:stop_evidence.evidence_sources(Claude/Codex 调 session_records;DSH 调 dsh_session_records 验证调度器传入的主/子日志路径)
 - 语义例外:无
 - 待收口:无
 
 ## 本回合
-- 定义:Claude 记录里最后一条回合结束记录(`stop_hook_summary` 或 `turn_duration`,Stop hook 跑完后才写)之后,Codex 记录里最后一个 `task_started` 之后;回合中途到达的用户消息、任务通知、同伴消息都算本回合内。记录尾部没有边界时从读到的第一行算起。
+- 定义:Claude 记录里最后一条回合结束记录(`stop_hook_summary` 或 `turn_duration`,Stop hook 跑完后才写)之后,Codex 记录里最后一个 `task_started` 之后;DSH 取 seq/time/data.turn 均有效的最后一条 `turn/start`,强制继续产生的 UserPromptSubmit 不换回合。回合中途到达的用户消息、任务通知、同伴消息都算本回合内。Claude/Codex 记录尾部没有边界时从读到的第一行算起,DSH 没有有效边界时不据此阻塞。
 - 唯一实现:stop_evidence.turn_boundary
 - 语义例外:无
+- 待收口:无
+
+## CC 项目信任
+- 定义:复用 CC 的 hasTrustDialogAccepted 严格 true 记录,分别计算 settings 目录、local settings 目录、hook 项目目录与信任键;不能用其中一值替代其它值。
+- 唯一实现:cc_hooks.project_context(调度器与 init 经 trusted_project 共用)
+- 语义例外:DSH 未提供 CC 显式 projectConfigRoot 或运行中 worktree 切换参数,不推断这些值。
+- 待收口:无
+
+## DSH 日志位置
+- 定义:按完整 session_id 在 DSH 会话目录跨创建 cwd 查找唯一 v4 日志,验证 header.id 与目录一致;子日志由 parentSession 链关联,重复路径或索引不完整时不猜。
+- 唯一实现:cc_hooks.session_metadata
+- 语义例外:Stop 取证只校验并读取调度器传来的路径,不重新定位;看板直调没有索引时不标 DSH 状态。
 - 待收口:无

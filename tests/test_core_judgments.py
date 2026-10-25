@@ -230,6 +230,7 @@ class HarnessTableTest(unittest.TestCase):
         "judgment_twins": REPO / ".claude" / "hooks" / "judgment_twins.py",
         "init": REPO / "init.py",
         "migrate_trellis": REPO / "migrate_trellis.py",
+        "cc_hooks": REPO / "dsh" / "cc_hooks.py",
     }
 
     def test_each_unique_implementation_exists_once(self):
