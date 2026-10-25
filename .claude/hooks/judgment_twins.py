@@ -262,8 +262,7 @@ def reminder(payload, cwd, root):
         listed = "、".join(shown(f"{twin}:{line} {defined}") for twin, line, defined in found[:TWIN_LIMIT])
         lines.append(
             f"[harness] 本轮新写的 {shown(name)}({where})像一个判断,库里已有同类:{listed}(共 {len(found)} 个)。"
-            "能复用就调用;现成的有毛病就修它;意思本来不同就另起名字、写理由"
-            "(docs/rules/harness.md「核心判断只写一份」)。"
+            "照 docs/rules/harness.md「核心判断只写一份」处理。"
         )
     if not lines:
         return None

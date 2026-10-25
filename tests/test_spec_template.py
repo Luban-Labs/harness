@@ -13,6 +13,7 @@ from hook_support import HookCase, REPO, SESSION_START
 SESSION = "cb260c48-3465-481c-9e57-cea155732e77"
 TEMPLATE = REPO / ".agents/skills/interview-me/templates/spec.md"
 PROGRESS = "- 10-22 09:00 done: 已完成 | next: 你: 确认"
+NOT_DOING = "- 已填(出处:owner「已填」)"
 
 
 class SpecTemplateTest(HookCase):
@@ -43,6 +44,7 @@ class SpecTemplateTest(HookCase):
         spec = self.create(kind=kind)
         text = spec.read_text(encoding="utf-8")
         text = re.sub(r"<[^<>]+>", "已填", text)
+        text = text.replace("## 不做\n\n- 已填(出处:已填)", "## 不做\n\n" + NOT_DOING)
         text = text.replace("Status: ready-for-agent", "Status: in-progress\n会话: " + session)
         text = text.replace("## 进展\n", "## 进展\n" + PROGRESS + "\n")
         spec.write_text(text, encoding="utf-8")
@@ -157,6 +159,8 @@ class SpecTemplateTest(HookCase):
             ("count", lambda text: text + "\n".join([PROGRESS] * 30) + "\n", "进展超过 30 行"),
             ("scope", lambda text: text.replace("会话: " + SESSION, "会话: " + SESSION + "\nScope: .scratch/task"), "Scope 落在 .scratch 内"),
             ("goal", lambda text: re.sub(r"^目标:.*$", "", text, flags=re.M), "缺必填节: 目标"),
+            ("source", lambda text: text.replace(NOT_DOING, "- 不改 section_identity"),
+             "「不做」有 1 项没写出处(owner 原话、已验证的失败或文档位置):「不改 section_identity」"),
         )
         for label, change, expected in changes:
             with self.subTest(label=label):
@@ -357,6 +361,39 @@ class SpecTemplateTest(HookCase):
         transcript = self.transcript(*self.claude_call(
             "Edit", {"file_path": str(spec)}, base + 200, base + 400))
         self.assertIn("缺必填节: 解法", self.message(transcript_path=str(transcript)))
+
+    def test_not_doing_items_need_a_loosely_read_source(self):
+        sourced = (
+            "- 不改 section_identity(出处:owner 10-22 定)",
+            "- 不改 section_identity(Owner 原话)",
+            "- 不改 section_identity:「先不动它」",
+            "- 不改 section_identity(已验证:改了挂 12 个测试)",
+            "- 不改 section_identity(见 docs/rules/core-judgments.md)",
+            "- 不改 section_identity(见 notes.md)",
+            "- 不改 section_identity(https://example.com/issues/1)",
+            "- 不改 section_identity\n  出处:owner 当面确认",
+            "无",
+            "- 无",
+        )
+        for item in sourced:
+            with self.subTest(item=item):
+                self.reset_root()
+                spec = self.ready_spec()
+                spec.write_text(spec.read_text(encoding="utf-8").replace(NOT_DOING, item), encoding="utf-8")
+                self.assertEqual(self.message(), "")
+        for item, expected in (
+            ("- 不改 listing_traits.section_identity(我判断修不了)",
+             "「不做」有 1 项没写出处(owner 原话、已验证的失败或文档位置):「不改 listing_traits.section_iden」"),
+            ("- 不改 a\n- 已验证:不改 b\n- 不改 c\n  理由:太大",
+             "「不做」有 2 项没写出处(owner 原话、已验证的失败或文档位置):「不改 a」、「不改 c 理由:太大」"),
+        ):
+            with self.subTest(item=item):
+                self.reset_root()
+                spec = self.ready_spec()
+                spec.write_text(spec.read_text(encoding="utf-8").replace(NOT_DOING, item), encoding="utf-8")
+                self.assertIn(expected, self.message())
+        self.root.joinpath(".agents/skills/interview-me/templates/spec.md").unlink()
+        self.assertEqual(self.message(), "")
 
     def test_new_judgment_line_is_a_placeholder_in_both_kinds(self):
         line = next(item for item in TEMPLATE.read_text(encoding="utf-8").splitlines()

@@ -74,6 +74,27 @@ def output_message(message, codex):
     }
 
 
+# A 「不做」 item cites a source when it names the owner, quotes words, says verified, or points at a file or URL.
+SOURCE = re.compile(
+    r"owner|原话|「[^」]+」|已验证|https?://"
+    r"|[A-Za-z0-9_.~-]+/[A-Za-z0-9_.-]"
+    r"|[A-Za-z0-9_-]\.[A-Za-z][A-Za-z0-9]{0,4}(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
+
+
+def unsourced_items(lines):
+    """「不做」 items (an unindented line with its indented follow-ups) that cite no source; a lone 无 is no item."""
+    items = []
+    for line in lines:
+        if line[:1].isspace() and items:
+            items[-1] += " " + line.strip()
+        else:
+            items.append(line.strip())
+    return [item for item in items
+            if not re.fullmatch(r"(?:[-*+]\s*)?无[。.]?", item) and not SOURCE.search(item)]
+
+
 def spec_reminder(task, root, skeleton):
     """Collect all template violations for one parseable Task."""
     from session_start import section_lines, spec_sections
@@ -108,6 +129,10 @@ def spec_reminder(task, root, skeleton):
         placeholders = {line.strip() for line in skeleton if re.search(r"<[^<>]+>", line)}
         if any(line.strip() in placeholders for line in lines):
             problems.append("还留着骨架占位行")
+        bare = unsourced_items(section_lines(sections, "不做"))
+        if bare:
+            listed = "、".join("「" + re.sub(r"^[-*+]\s*", "", item)[:30] + "」" for item in bare[:3])
+            problems.append(f"「不做」有 {len(bare)} 项没写出处(owner 原话、已验证的失败或文档位置):{listed}")
     if progress and len(progress[-1]) > 200:
         problems.append("进展最后一行超过 200 字")
     if sum(bool(re.match(r"^- \d{2}-\d{2}", line)) for line in progress) > 30:
