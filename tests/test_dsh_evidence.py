@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from unittest import mock
 
 try:
@@ -23,17 +22,12 @@ BASE = 1_900_000_000_000_000_000
 
 
 class DshEvidenceTest(HookCase):
-    def setUp(self):
-        with mock.patch.object(tempfile, "tempdir", str(REPO / ".tmp-tests")):
-            super().setUp()
-
     def run_dsh(self, payload):
         result = subprocess.run(
             [sys.executable, str(STOP_GUARD)], input=json.dumps(payload), text=True,
             capture_output=True, cwd=self.root, timeout=60,
             env={**os.environ, "HOME": str(self.home), "HARNESS_HOST": "dsh",
-                 "CLAUDE_PROJECT_DIR": str(self.root), "PYTHONDONTWRITEBYTECODE": "1",
-                 "TMPDIR": str(REPO / ".tmp-tests")},
+                 "CLAUDE_PROJECT_DIR": str(self.root), "PYTHONDONTWRITEBYTECODE": "1"},
         )
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stderr, "")
@@ -235,8 +229,7 @@ class DshEvidenceTest(HookCase):
         if zstd is None:
             self.skipTest("compression.zstd needs Python 3.14")
         shutil.rmtree(self.root / ".git")
-        env = {**os.environ, "HOME": str(self.home), "GIT_CONFIG_NOSYSTEM": "1",
-               "TMPDIR": str(REPO / ".tmp-tests")}
+        env = {**os.environ, "HOME": str(self.home), "GIT_CONFIG_NOSYSTEM": "1"}
         def git(*args):
             subprocess.run(["git", "-C", str(self.root), *args], check=True,
                            capture_output=True, env=env)

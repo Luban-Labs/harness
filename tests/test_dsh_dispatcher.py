@@ -29,10 +29,11 @@ if SCRIPT.exists():
 @unittest.skipIf(zstd is None, "compressed DSH dispatch needs Python 3.14")
 class DispatcherTest(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=REPO / ".tmp-tests")
+        self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.home = Path(self.temp.name) / "home"
-        self.root = Path(self.temp.name) / "project"
+        self.base = Path(self.temp.name).resolve()
+        self.home = self.base / "home"
+        self.root = self.base / "project"
         self.root.mkdir()
         (self.root / ".git").mkdir()
         self.sid = "session-11111111-2222-4333-8444-555555555555"
@@ -77,7 +78,7 @@ class DispatcherTest(unittest.TestCase):
 
     def test_created_cwd_survives_current_directory_change(self):
         self.settings("SessionStart", [self.hook("import os; print(os.environ['CLAUDE_PROJECT_DIR'])")])
-        outside = Path(self.temp.name) / "elsewhere"
+        outside = self.base / "elsewhere"
         outside.mkdir()
         self.assertIn(str(self.root), str(self.run_dispatch("SessionStart", cwd=str(outside))))
 
@@ -230,7 +231,7 @@ class DispatcherTest(unittest.TestCase):
         self.assertEqual(output, "${CLAUDE_PLUGIN_ROOT}|" + str(plugin) + "\n\n" + str(plugin) + "|" + str(self.root))
 
     def test_worktree_separates_settings_env_and_trust(self):
-        main = Path(self.temp.name) / "main"
+        main = self.base / "main"
         gitdir = main / ".git/worktrees/child"
         gitdir.mkdir(parents=True)
         (self.root / ".git").rmdir()

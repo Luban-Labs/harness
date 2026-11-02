@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class InitDshTest(unittest.TestCase):
     def install(self, trust):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
+            base = Path(directory).resolve()
             home, target = base / "home", base / "project"
             home.mkdir()
             target.mkdir()

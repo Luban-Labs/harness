@@ -20,7 +20,7 @@ class HookCase(unittest.TestCase):
 
     def _new_root(self):
         self.temp = tempfile.TemporaryDirectory()
-        shell = Path(self.temp.name)
+        shell = Path(self.temp.name).resolve()
         (shell / ".empty-scratch").mkdir()
         (shell / ".scratch").symlink_to(".empty-scratch", target_is_directory=True)
         self.root = shell / "project"
