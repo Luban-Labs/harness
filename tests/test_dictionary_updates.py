@@ -206,6 +206,23 @@ class DictionaryUpdatesTest(HookCase):
         self.setup_source(SOURCE, "floor_price", "\ufeff" + BEFORE, body)
         self.assertEqual(self.stop(*self.edit(old="return value", new="return value + 1")), "")
 
+    def test_class_method_reference_compares_only_that_class(self):
+        old = ("class Pricing:\n    def floor_price(self, value):\n        return value\n\n"
+               "class Other:\n    def floor_price(self, value):\n        return value\n")
+        for target, reminds in (("class Pricing:\n    def floor_price(self, value)", True),
+                                ("class Other:\n    def floor_price(self, value)", False)):
+            with self.subTest(target=target):
+                new = old.replace(target, target.replace("(self, value)", "(self, value, fee=0)"))
+                self.write(TABLE, f"## 售价底线\n- 唯一实现:`{SOURCE}:Pricing.floor_price`\n")
+                self.write(SOURCE, old)
+                self.commit()
+                self.write(SOURCE, new)
+                output = self.stop(*self.edit(old=old, new=new))
+                if reminds:
+                    self.assert_update(output, "Pricing.floor_price")
+                else:
+                    self.assertEqual(output, "")
+
     def test_codex_move_without_name_in_diff_reminds(self):
         moved = "src/renamed.py"
         self.write(moved, BEFORE)

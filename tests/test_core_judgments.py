@@ -97,6 +97,13 @@ class ConceptLineTest(HookCase):
                    "## 同场\n- 唯一实现:`existing.py:same`\n")
         self.assertEqual(self.context().splitlines()[-1], LINE + ";唯一实现路径找不到:同区")
 
+    def test_class_method_references_are_checked(self):
+        self.ready()
+        (self.root / "existing.py").write_text("class A:\n    def same(self): pass\n", encoding="utf-8")
+        self.table("## 同区\n- 唯一实现:`gone.py:A.same`\n"
+                   "## 同场\n- 唯一实现:`existing.py:A.same`\n")
+        self.assertEqual(self.context().splitlines()[-1], LINE + ";唯一实现路径找不到:同区")
+
     def test_symlink_loop_drops_only_the_concept_line(self):
         self.ready()
         baseline = self.context()

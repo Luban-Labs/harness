@@ -289,7 +289,7 @@ def core_judgment_entries(root, deadline=None):
                         if (not colon or not relative or Path(relative).is_absolute() or "\\" in relative
                                 or any(part in ("", ".", "..") for part in relative.split("/"))
                                 or not all(char.isprintable() for char in relative)
-                                or not re.fullmatch(r"[A-Za-z_$][\w$]*", name)):
+                                or not re.fullmatch(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*", name)):
                             continue
                         if (root / relative).resolve().is_relative_to(root):
                             current[1].append((relative, name))

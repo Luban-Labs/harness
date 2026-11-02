@@ -64,6 +64,14 @@ def definition_signatures(text, deadline):
     return found
 
 
+def named(signatures, dotted):
+    """Signatures of a registered name; `A.b` keeps only definitions of b whose enclosing names end with A."""
+    *outer, name = dotted.split(".")
+    outer = tuple(outer)
+    return Counter({signature: count for signature, count in signatures.get(name, Counter()).items()
+                    if signature[0][len(signature[0]) - len(outer):] == outer})
+
+
 def reminder(payload, cwd, root):
     from session_start import CORE_TABLE, core_judgment_entries
     from stop_evidence import EDIT_TOOLS, edit_pieces, git, locate, shown, turn_edits, worktree_roots
@@ -118,8 +126,8 @@ def reminder(payload, cwd, root):
                 # old None replaces HEAD's whole text and a move empties its source: every name counts.
                 if old is not None and candidate == value:
                     pieces = [piece for piece in (old, new) if isinstance(piece, str)]
-                    names = [name for name in names
-                             if any(re.search(NAME_BOUNDARY.format(re.escape(name)), piece) for piece in pieces)]
+                    names = [name for name in names if any(
+                        re.search(NAME_BOUNDARY.format(re.escape(name.rsplit(".", 1)[-1])), piece) for piece in pieces)]
                 candidates.update((worktree, relative, name) for name in names)
     changed = set()
     by_file = {}
@@ -140,7 +148,7 @@ def reminder(payload, cwd, root):
         except (OSError, UnicodeError, SyntaxError, ValueError, RecursionError):
             continue
         changed.update((relative, name) for name in names
-                       if old_signatures.get(name, Counter()) != new_signatures.get(name, Counter()))
+                       if named(old_signatures, name) != named(new_signatures, name))
     check_time(deadline)
     if not changed:
         return None
