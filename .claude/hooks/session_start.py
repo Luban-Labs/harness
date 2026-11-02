@@ -16,7 +16,7 @@ import time
 READY_LIMIT = 5
 ACTIVE_LIMIT = 10
 OWNER_LIMIT = 8
-CONCEPT_LIMIT = 20
+MISSING_CONCEPT_LIMIT = 3
 ARCHIVE_LIMIT = 1000
 STATUS = {"ready-for-agent", "in-progress", "done"}
 HEADER = re.compile(r"^([^:#：]+)[：:]\s*(.*)$")
@@ -260,29 +260,70 @@ def load_tasks(root):
     return active, ready, archived
 
 
-def core_judgments(root):
-    """Name the concepts in the project's core-judgment table; "" when it is missing or lists none."""
+def core_judgment_entries(root, deadline=None):
+    """Read unfenced concepts and backticked project-relative path:name implementations."""
+    root = Path(root).resolve()
+    entries = []
+    current = None
+    fence = ""
     try:
-        lines = (Path(root) / CORE_TABLE).read_text(encoding="utf-8").splitlines()
-        names = []
-        fence = ""
-        for line in lines:
-            match = FENCE.match(line)
-            if fence:
-                # Only a run of the same character, at least as long, closes the open fence.
-                if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) \
-                        and not line.strip().strip(fence[0]):
-                    fence = ""
-            elif match:
-                fence = match.group(1)
-            elif line.startswith("## ") and line[3:].strip():
-                names.append(line[3:].strip())
+        with (root / CORE_TABLE).open(encoding="utf-8") as stream:
+            for line in stream:
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError("responsibility table scan ran out of time")
+                match = FENCE.match(line)
+                if fence:
+                    if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) \
+                            and not line.strip().strip(fence[0]):
+                        fence = ""
+                elif match:
+                    fence = match.group(1)
+                elif line.startswith("## ") and line[3:].strip():
+                    current = (line[3:].strip(), [])
+                    entries.append(current)
+                elif line.startswith("# "):
+                    current = None
+                elif current is not None and re.match(r"^\s*-\s*唯一实现\s*[:：]", line):
+                    for reference in re.findall(r"`([^`\r\n]+)`", line):
+                        relative, colon, name = reference.rpartition(":")
+                        if (not colon or not relative or Path(relative).is_absolute() or "\\" in relative
+                                or any(part in ("", ".", "..") for part in relative.split("/"))
+                                or not all(char.isprintable() for char in relative)
+                                or not re.fullmatch(r"[A-Za-z_$][\w$]*", name)):
+                            continue
+                        if (root / relative).resolve().is_relative_to(root):
+                            current[1].append((relative, name))
+    except TimeoutError:
+        raise
+    except (OSError, UnicodeError, ValueError):
+        return []
+    return entries
+
+
+def core_judgments(root):
+    """List concepts and missing implementation paths; failures drop only this optional line."""
+    try:
+        from stop_evidence import shown
+
+        entries = core_judgment_entries(root)
+        if not entries:
+            return ""
+        names = "、".join(shown(name) for name, _ in entries)
+        missing = []
+        for name, implementations in entries:
+            for relative, _ in implementations:
+                try:
+                    (Path(root) / relative).stat()
+                except (FileNotFoundError, NotADirectoryError):
+                    missing.append(name)
+                    break
+        result = f"[harness] 核心判断表 {CORE_TABLE}:{names};设计前先读 docs/rules/architecture.md 总图并查本表"
+        if missing:
+            more = f" 等 {len(missing)} 个" if len(missing) > MISSING_CONCEPT_LIMIT else ""
+            result += ";唯一实现路径找不到:" + "、".join(shown(name) for name in missing[:MISSING_CONCEPT_LIMIT]) + more
+        return result
     except Exception:
         return ""
-    if not names:
-        return ""
-    more = f" 等 {len(names)} 个" if len(names) > CONCEPT_LIMIT else ""
-    return f"[harness] 核心判断表 {CORE_TABLE}:{'、'.join(names[:CONCEPT_LIMIT])}{more};新写或改判断前先查表"
 
 
 def record_stamp(claim, kind, probe):

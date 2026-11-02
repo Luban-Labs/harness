@@ -23,11 +23,19 @@ class InitProjectTest(unittest.TestCase):
             self.assertTrue((t / "AGENTS.md").is_file())
             self.assertEqual(os.readlink(t / "CLAUDE.md"), "AGENTS.md")
             self.assertTrue((t / "docs" / "rules" / "harness.md").is_file())
+            architecture = (t / "docs" / "rules" / "architecture.md").read_text(encoding="utf-8")
+            template = (ROOT / "templates" / "architecture.md").read_text(encoding="utf-8")
+            self.assertEqual(architecture, template.split("<!-- 空总图到此为止 -->", 1)[0].rstrip() + "\n")
+            self.assertIn("| docs/rules/architecture.md |", (t / "AGENTS.md").read_text(encoding="utf-8"))
             self.assertTrue((t / "docs" / "decisions.md").is_file())
             self.assertTrue((t / ".scratch" / ".gitkeep").is_file())
             self.assertTrue((t / ".claude" / "hooks" / "stop_guard.py").is_file())
             self.assertTrue((t / ".codex" / "hooks").is_symlink())
             self.assertTrue((t / ".codex" / "hooks" / "session_start.py").is_file())
+            for name in ("session_start.py", "stop_guard.py", "stop_evidence.py",
+                         "judgment_twins.py", "dictionary_updates.py"):
+                self.assertEqual((t / ".claude" / "hooks" / name).read_bytes(),
+                                 (ROOT / ".claude" / "hooks" / name).read_bytes())
             self.assertTrue((t / ".agents" / "skills" / "interview-me" / "SKILL.md").is_file())
             self.assertTrue((t / ".claude" / "skills" / "interview-me").is_symlink())
             self.assertTrue((t / ".claude" / "skills" / "interview-me" / "SKILL.md").is_file())
@@ -46,15 +54,19 @@ class InitProjectTest(unittest.TestCase):
             self.assertEqual(run(d).returncode, 0)
             t = Path(d)
             (t / "AGENTS.md").write_text("# 我的规则\n")
+            (t / "docs/rules/architecture.md").write_text("# 我的总图\n\n业务链\n", encoding="utf-8")
             before = {p: p.stat().st_mtime_ns for p in t.rglob("*") if p.is_file()}
             r = run(d)
             self.assertEqual(r.returncode, 0, r.stdout)
             self.assertEqual((t / "AGENTS.md").read_text(), "# 我的规则\n")
+            self.assertEqual((t / "docs/rules/architecture.md").read_text(encoding="utf-8"),
+                             "# 我的总图\n\n业务链\n")
             after = {p: p.stat().st_mtime_ns for p in t.rglob("*") if p.is_file()}
             changed = [p for p in before if before[p] != after.get(p)]
             self.assertEqual(changed, [], changed)
             self.assertIn("路由表里要有一行", r.stdout)
             self.assertIn("「改动的影响面」", r.stdout)
+            self.assertIn("设计前梳理整体 → docs/rules/architecture.md", r.stdout)
 
     def test_conflict_refuses_before_writing_anything(self):
         with tempfile.TemporaryDirectory() as d:

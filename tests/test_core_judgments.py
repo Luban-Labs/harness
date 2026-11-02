@@ -19,7 +19,7 @@ import init  # noqa: E402
 
 
 TABLE = "docs/rules/core-judgments.md"
-LINE = "[harness] 核心判断表 docs/rules/core-judgments.md:同区、同场;新写或改判断前先查表"
+LINE = "[harness] 核心判断表 docs/rules/core-judgments.md:同区、同场;设计前先读 docs/rules/architecture.md 总图并查本表"
 
 
 class ConceptLineTest(HookCase):
@@ -56,15 +56,61 @@ class ConceptLineTest(HookCase):
         self.table("~~~md\n## 示例\n~~~\n````\n```\n## 示例\n````\n## 同区\n## 同场\n")
         self.assertEqual(self.context().splitlines()[-1], LINE)
 
-    def test_concept_line_lists_at_most_twenty_names(self):
+    def test_concept_line_lists_all_names_over_twenty(self):
         self.ready()
         names = [f"概念{n}" for n in range(1, 22)]
         self.table("".join(f"## {name}\n" for name in names))
         line = self.context().splitlines()[-1]
-        self.assertEqual(line, f"[harness] 核心判断表 {TABLE}:{'、'.join(names[:20])} 等 21 个;新写或改判断前先查表")
+        self.assertEqual(line, f"[harness] 核心判断表 {TABLE}:{'、'.join(names)};设计前先读 docs/rules/architecture.md 总图并查本表")
         self.table("".join(f"## {name}\n" for name in names[:20]))
         self.assertEqual(self.context().splitlines()[-1],
-                         f"[harness] 核心判断表 {TABLE}:{'、'.join(names[:20])};新写或改判断前先查表")
+                         f"[harness] 核心判断表 {TABLE}:{'、'.join(names[:20])};设计前先读 docs/rules/architecture.md 总图并查本表")
+
+    def test_missing_implementation_files_are_named_on_the_same_line(self):
+        self.ready()
+        (self.root / "existing.py").write_text("def same(): pass\n", encoding="utf-8")
+        self.table("## 同区\n- 唯一实现:`gone.py:same`\n"
+                   "## 同场\n- 唯一实现:`existing.py:same`\n")
+        self.assertEqual(self.context().splitlines()[-1], LINE + ";唯一实现路径找不到:同区")
+
+    def test_only_backticked_repository_relative_implementation_paths_are_checked(self):
+        self.ready()
+        self.table("## 同区\n- 唯一实现:gone.py:same\n"
+                   "## 同场\n- 定义:`gone.py:same`\n- 唯一实现:`/gone.py:same`、"
+                   "`../gone.py:same`、`a/../../gone.py:same`、`a\\gone.py:same`\n"
+                   "```\n- 唯一实现:`missing.py:same`\n```\n")
+        self.assertEqual(self.context().splitlines()[-1], LINE)
+
+    def test_missing_file_concepts_have_a_three_name_limit_and_total(self):
+        self.ready()
+        names = [f"概念{n}" for n in range(5)]
+        self.table("".join(f"## {name}\n- 唯一实现:`gone{n}.py:check`\n"
+                           for n, name in enumerate(names)))
+        line = self.context().splitlines()[-1]
+        self.assertIn("、".join(names) + ";", line)
+        self.assertTrue(line.endswith(";唯一实现路径找不到:概念0、概念1、概念2 等 5 个"), line)
+
+    def test_path_through_a_file_counts_as_missing(self):
+        self.ready()
+        (self.root / "existing.py").write_text("def same(): pass\n", encoding="utf-8")
+        self.table("## 同区\n- 唯一实现:`existing.py/inner.py:same`\n"
+                   "## 同场\n- 唯一实现:`existing.py:same`\n")
+        self.assertEqual(self.context().splitlines()[-1], LINE + ";唯一实现路径找不到:同区")
+
+    def test_symlink_loop_drops_only_the_concept_line(self):
+        self.ready()
+        baseline = self.context()
+        (self.root / "loop.py").symlink_to("loop.py")
+        self.table("## 同区\n- 唯一实现:`loop.py:same`\n")
+        self.assertTrue(baseline)
+        self.assertEqual(self.context(), baseline)
+
+    def test_overlong_path_component_drops_only_the_concept_line(self):
+        self.ready()
+        baseline = self.context()
+        self.table("## 同区\n- 唯一实现:`" + "x" * 300 + ".py:same`\n")
+        self.assertTrue(baseline)
+        self.assertEqual(self.context(), baseline)
 
     def test_empty_board_stays_zero_bytes_with_a_filled_table(self):
         self.table("# 核心判断\n\n## 同区\n")
@@ -135,7 +181,7 @@ class InstallTableTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual((target / TABLE).read_text(encoding="utf-8"), "# 项目的表\n\n## 同区\n")
                 self.assertIn(f"= {TABLE}", result.stdout)
-                self.assertIn("新写或改一个判断 → docs/rules/core-judgments.md", result.stdout)
+                self.assertIn("新写或改一个判断、业务数、限制或保护 → docs/rules/core-judgments.md", result.stdout)
 
     def test_migration_creates_the_routed_table_and_keeps_an_existing_one(self):
         fixture = REPO / "tests" / "trellis_fixture.py"
@@ -168,7 +214,7 @@ class InstallTableTest(unittest.TestCase):
         owned = ("# 规则\n\n## 路由表\n\n| 做什么 | 读 |\n| --- | --- |\n"
                  "| 开工或收尾 | docs/rules/harness.md |\n| 改接口 | docs/api.md |\n\n## 其他\n\n正文\n")
         for content, expected in (
-            (owned, "| 改接口 | docs/api.md |\n| 改动会改变"),
+            (owned, "| 改接口 | docs/api.md |\n| 设计前梳理整体"),
             ("# 规则\n\n## 路由表\n\n正文\n", "## 路由表\n\n| 做什么 / 改到哪 | 读 |"),
         ):
             with self.subTest(content=content), tempfile.TemporaryDirectory() as d:
@@ -182,7 +228,7 @@ class InstallTableTest(unittest.TestCase):
                 text = (target / "AGENTS.md").read_text(encoding="utf-8")
                 self.assertIn(expected, text)
                 for target_cell in ("| docs/rules/harness.md |", "| docs/rules/harness.md「改动的影响面」 |",
-                                    "| docs/rules/core-judgments.md |"):
+                                    "| docs/rules/core-judgments.md |", "| docs/rules/architecture.md |"):
                     self.assertEqual(text.count(target_cell), 1, text)
                 self.assertEqual(text.count("路由表"), 1, text)
 
@@ -228,6 +274,7 @@ class HarnessTableTest(unittest.TestCase):
         "stop_guard": REPO / ".claude" / "hooks" / "stop_guard.py",
         "stop_evidence": REPO / ".claude" / "hooks" / "stop_evidence.py",
         "judgment_twins": REPO / ".claude" / "hooks" / "judgment_twins.py",
+        "dictionary_updates": REPO / ".claude" / "hooks" / "dictionary_updates.py",
         "init": REPO / "init.py",
         "migrate_trellis": REPO / "migrate_trellis.py",
         "cc_hooks": REPO / "dsh" / "cc_hooks.py",
@@ -241,9 +288,12 @@ class HarnessTableTest(unittest.TestCase):
         }
         text = (REPO / TABLE).read_text(encoding="utf-8")
         concepts = re.findall(r"^## (.+)$", text, flags=re.M)
-        implementations = re.findall(r"^- 唯一实现:\s*`?(\w+)\.(\w+)", text, flags=re.M)
+        implementations = re.findall(r"^- 唯一实现:\s*`([^`]+):(\w+)`", text, flags=re.M)
         self.assertEqual(len(implementations), len(concepts))
-        for module, function in implementations:
+        modules_by_path = {path.relative_to(REPO).as_posix(): name for name, path in self.MODULES.items()}
+        for relative, function in implementations:
+            self.assertIn(relative, modules_by_path)
+            module = modules_by_path[relative]
             with self.subTest(function=f"{module}.{function}"):
                 self.assertIn(function, defined[module])
                 self.assertEqual([name for name, names in defined.items()

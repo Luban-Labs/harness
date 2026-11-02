@@ -3,17 +3,14 @@
 
 from pathlib import Path, PurePosixPath
 import re
-import subprocess
 import time
 
 
-TURN_BUDGET = 8 * 1024 * 1024
 TIME_BUDGET = 1.5
 TWIN_LIMIT = 8
 FUNCTION_LIMIT = 3
 # Longer lines are minified code, and the patterns below get quadratic on them.
 LINE_LIMIT = 400
-CODE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
 # Test folders, and .scratch, which holds specs and archived third-party scripts rather than code.
 TEST_DIRS = {"tests", "test", "__tests__"}
 JUDGMENT_WORDS = {
@@ -60,18 +57,9 @@ KEYWORDS = {"if", "for", "while", "switch", "catch", "with", "function", "return
             "try", "typeof", "await", "new", "super", "yield", "delete", "void", "case", "throw"}
 
 
-def git(cwd, deadline, *args):
-    """Run one read-only git command inside the time budget; its stdout, or None when git fails."""
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise TimeoutError("judgment twin check ran out of time")
-    result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, timeout=remaining)
-    return result.stdout.decode("utf-8", errors="replace") if result.returncode == 0 else None
-
-
 def code_file(relative):
     """A source file the check reads: a code suffix, outside non-code directories, and not a test by directory or name."""
-    from stop_evidence import excluded_dir
+    from stop_evidence import CODE_SUFFIXES, excluded_dir
 
     path = PurePosixPath(relative)
     name = path.name
@@ -122,58 +110,17 @@ def judgment_nouns(name):
             if word not in JUDGMENT_WORDS and word not in STOP_WORDS and len(word) > 1 and not word.isdigit()}
 
 
-def locate(value, roots):
-    """Return (file, worktree root, path inside it) for an absolute path in one of the repo's worktrees."""
-    if not isinstance(value, str) or not Path(value).is_absolute():
-        return None
-    path = Path(value).resolve()
-    for root in roots:
-        if path.is_relative_to(root):
-            return path, root, path.relative_to(root).as_posix()
-    return None
-
-
 def new_functions(payload, roots, deadline):
     """List (file, relative path, name) of definitions this turn's successful edits added, in order."""
-    from stop_evidence import dsh_host, dsh_successful_edits, evidence_sources, successful_edits
+    from stop_evidence import edit_pieces, git, locate, turn_edits
 
-    transcript, *subagents = evidence_sources(payload)
-    reader = dsh_successful_edits if dsh_host() else successful_edits
-    edits, start = reader(transcript, tail=TURN_BUDGET, turn=True, deadline=deadline)
-    if start is not None:
-        for source in subagents:
-            if time.monotonic() >= deadline:
-                raise TimeoutError("judgment twin check ran out of time")
-            # A subagent counts only for what it did after this turn opened.
-            if source.stat().st_mtime_ns >= start:
-                edits.extend(edit for edit in reader(source, tail=TURN_BUDGET, deadline=deadline)[0]
-                             if edit[0] is not None and edit[0] >= start)
+    edits = turn_edits(payload, deadline)
     found = []
     seen = set()
     for _, tool, data in edits:
         if time.monotonic() >= deadline:
             raise TimeoutError("judgment twin check ran out of time")
-        # (path, new text, old text); old None means the version in HEAD.
-        pieces = []
-        if tool == "FileChange":
-            for path, change in data.items():
-                if not isinstance(change, dict):
-                    continue
-                if change.get("type") == "add" and isinstance(change.get("content"), str):
-                    pieces.append((path, change["content"], ""))
-                elif change.get("type") == "update" and isinstance(change.get("unified_diff"), str):
-                    lines = change["unified_diff"].splitlines()
-                    pieces.append((change.get("move_path") or path,
-                                   "\n".join(line[1:] for line in lines if line.startswith("+")),
-                                   "\n".join(line[1:] for line in lines if line.startswith("-"))))
-        elif tool in ("Edit", "MultiEdit"):
-            changes = [data] if tool == "Edit" else data.get("edits")
-            for change in changes if isinstance(changes, list) else ():
-                if isinstance(change, dict):
-                    pieces.append((data.get("file_path"), change.get("new_string"), change.get("old_string")))
-        elif tool == "Write":
-            pieces.append((data.get("file_path"), data.get("content"), None))
-        for path, new, old in pieces:
+        for path, old, new in edit_pieces(tool, data):
             located = locate(path, roots)
             if located is None or not isinstance(new, str) or not code_file(located[2]):
                 continue
@@ -195,6 +142,8 @@ def twins(top, nouns, own, deadline):
     Every file's first twin comes before any file's second, public names first within a round:
     the copy a session misses sits in another area, and one file's helpers would fill the list.
     """
+    from stop_evidence import CODE_SUFFIXES, git
+
     output = git(top, deadline, "-c", "core.quotePath=false", "grep", "-n", "-z", "-I", "-i", "-F",
                  *(arg for noun in sorted(nouns) for arg in ("-e", noun)),
                  "--", *(f"*{suffix}" for suffix in sorted(CODE_SUFFIXES)))
@@ -224,7 +173,7 @@ def reminder(payload, cwd, root):
     Raises TimeoutError or subprocess.TimeoutExpired once the time budget is spent; the
     caller then drops the reminder.
     """
-    from stop_evidence import dsh_host, shown
+    from stop_evidence import dsh_host, git, shown, worktree_roots
 
     from session_start import CORE_TABLE, core_judgments
 
@@ -236,11 +185,7 @@ def reminder(payload, cwd, root):
     if not top:
         return None
     top = Path(top).resolve()
-    listing = git(top, deadline, "worktree", "list", "--porcelain") or ""
-    roots = {top} | {Path(line[len("worktree "):]).resolve()
-                     for line in listing.splitlines() if line.startswith("worktree ")}
-    # A worktree nested inside another one owns its files.
-    roots = sorted(roots, key=lambda path: len(path.parts), reverse=True)
+    roots = worktree_roots(top, deadline)
     lines = []
     for path, relative, name in new_functions(payload, roots, deadline):
         if len(lines) >= FUNCTION_LIMIT:

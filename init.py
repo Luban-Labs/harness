@@ -4,8 +4,8 @@
 先全量预检,任何冲突就一个字节都不写、退出 1;重复跑是安全的(已装好的部分原样保留)。
 装的东西:
   AGENTS.md(来自 templates/AGENTS.md;已有就保留,提示手动加路由行)+ CLAUDE.md 符号链接
-  docs/rules/harness.md(复制)、docs/rules/core-judgments.md(空的核心判断表;已有就保留)、docs/decisions.md(空账本)、.scratch/.gitkeep
-  四个 hook 脚本(session_start.py、stop_guard.py、stop_evidence.py、judgment_twins.py)复制到 .claude/hooks/,.codex/hooks 做符号链接指过去
+  docs/rules/harness.md(复制)、docs/rules/core-judgments.md(空的核心判断表;已有就保留)、docs/rules/architecture.md(空总图;已有就保留)、docs/decisions.md(空账本)、.scratch/.gitkeep
+  五个 hook 脚本(session_start.py、stop_guard.py、stop_evidence.py、judgment_twins.py、dictionary_updates.py)复制到 .claude/hooks/,.codex/hooks 做符号链接指过去
   .claude/settings.json 与 .codex/hooks.json 追加 SessionStart / Stop 两条 hook,
   Claude 用 "$CLAUDE_PROJECT_DIR"/.claude/hooks/…,Codex 用 .codex/hooks/…(从项目根启动);已有配置只追加不改其他键
   .gitignore 追加 .scratch/.session
@@ -26,12 +26,14 @@ from pathlib import Path
 from dsh.cc_hooks import trusted_project
 
 HARNESS = Path(__file__).resolve().parent
-HOOKS = ("session_start.py", "stop_guard.py", "stop_evidence.py", "judgment_twins.py")
+HOOKS = ("session_start.py", "stop_guard.py", "stop_evidence.py", "judgment_twins.py", "dictionary_updates.py")
 SKILL = "interview-me"
 LEDGER = "# 决策账本\n\n给人看的。不进路由表、不进任何注入;只追加。每条:背景、决定、为什么。\n"
 GITIGNORE_LINE = ".scratch/.session"
 CORE_JUDGMENTS = "docs/rules/core-judgments.md"
 CORE_MARKER = "<!-- 以上是空表"
+ARCHITECTURE = "docs/rules/architecture.md"
+ARCHITECTURE_MARKER = "<!-- 空总图到此为止 -->"
 
 
 def empty_core_judgments():
@@ -40,6 +42,15 @@ def empty_core_judgments():
     head, marker, _ = text.partition(CORE_MARKER)
     if not marker or not head.strip() or any(line.startswith("## ") for line in head.splitlines()):
         raise ValueError("templates/core-judgments.md 没有空表标记或空表带了二级标题")
+    return head.rstrip() + "\n"
+
+
+def empty_architecture():
+    """从总图模板取标记前的空白项目页,不安装格式说明与示例。"""
+    text = (HARNESS / "templates" / "architecture.md").read_text(encoding="utf-8")
+    head, marker, _ = text.partition(ARCHITECTURE_MARKER)
+    if not marker or not head.strip() or any(line.startswith("## ") for line in head.splitlines()):
+        raise ValueError("templates/architecture.md 没有空总图标记或空总图带了二级标题")
     return head.rstrip() + "\n"
 
 
@@ -175,13 +186,15 @@ def build_plan(target, with_skill):
         p.conflicts.append("AGENTS.md 类型不对")
     elif agents.exists():
         p.kept.append("AGENTS.md(保留你的;路由表里要有一行「开始做或收一个 Task → docs/rules/harness.md」,"
+                      "一行「设计前梳理整体 → docs/rules/architecture.md」,"
                       "一行「改动会改变已有事实 → docs/rules/harness.md「改动的影响面」」,"
-                      "一行「新写或改一个判断 → docs/rules/core-judgments.md」,照 templates/AGENTS.md 抄)")
+                      "一行「新写或改一个判断、业务数、限制或保护 → docs/rules/core-judgments.md」,照 templates/AGENTS.md 抄)")
     else:
         p.copy(HARNESS / "templates" / "AGENTS.md", "AGENTS.md")
     p.link("CLAUDE.md", "AGENTS.md")
     p.copy(HARNESS / "docs" / "rules" / "harness.md", "docs/rules/harness.md")
     p.write_if_missing(CORE_JUDGMENTS, empty_core_judgments())
+    p.write_if_missing(ARCHITECTURE, empty_architecture())
     p.write_if_missing("docs/decisions.md", LEDGER)
     p.write_if_missing(".scratch/.gitkeep", "")
     for name in HOOKS:

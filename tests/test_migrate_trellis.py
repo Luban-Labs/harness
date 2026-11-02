@@ -352,8 +352,15 @@ class MigrateTrellisBlackBoxTest(unittest.TestCase):
         self.assertTrue((self.root / "CLAUDE.md").is_symlink())
         self.assertEqual(os.readlink(self.root / "CLAUDE.md"), "AGENTS.md")
         self.assertTrue((self.root / ".scratch/.gitkeep").is_file())
+        architecture = (self.root / "docs/rules/architecture.md").read_text(encoding="utf-8")
+        template = (ROOT / "templates/architecture.md").read_text(encoding="utf-8")
+        self.assertEqual(architecture, template.split("<!-- 空总图到此为止 -->", 1)[0].rstrip() + "\n")
         self.assertTrue((self.root / ".claude/hooks/session_start.py").is_file())
         self.assertTrue((self.root / ".claude/hooks/stop_guard.py").is_file())
+        for name in ("session_start.py", "stop_guard.py", "stop_evidence.py",
+                     "judgment_twins.py", "dictionary_updates.py"):
+            self.assertEqual((self.root / ".claude/hooks" / name).read_bytes(),
+                             (ROOT / ".claude/hooks" / name).read_bytes())
         self.assertTrue((self.root / ".agents/skills/interview-me/SKILL.md").is_file())
         self.assertTrue((self.root / ".claude/skills/interview-me").is_symlink())
 
@@ -446,6 +453,25 @@ class MigrateTrellisBlackBoxTest(unittest.TestCase):
         self.assertEqual(apply.returncode, 0, apply.stdout + apply.stderr)
         self.assertEqual(snapshot(self.root), stable)
 
+    def test_existing_architecture_is_preserved_and_missing_route_is_added(self):
+        architecture = self.root / "docs/rules/architecture.md"
+        architecture.parent.mkdir(parents=True, exist_ok=True)
+        architecture.write_text("# 我的总图\n\n项目业务链\n", encoding="utf-8")
+        agents = self.root / "AGENTS.md"
+        agents.write_text("# 规则\n\n## 路由表\n\n| 做什么 | 读 |\n| --- | --- |\n"
+                          "| 开工或收尾 | docs/rules/harness.md |\n\n## 其他\n\n正文\n",
+                          encoding="utf-8")
+        result = self.apply_fixture()
+        self.assertIn("KEEP docs/rules/architecture.md", result.stdout)
+        self.assertEqual(architecture.read_text(encoding="utf-8"), "# 我的总图\n\n项目业务链\n")
+        text = agents.read_text(encoding="utf-8")
+        self.assertEqual(text.count("| docs/rules/architecture.md |"), 1)
+        self.assertLess(text.index("| docs/rules/architecture.md |"), text.index("## 其他"))
+        stable = snapshot(self.root)
+        second = self.run_migrate(*self.migrate_args("--apply"))
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertEqual(snapshot(self.root), stable)
+
     def test_equivalent_existing_claude_links_are_kept_and_remain_idempotent(self):
         for link_kind in ("dot-relative", "absolute"):
             with self.subTest(link_kind=link_kind), tempfile.TemporaryDirectory() as temp:
@@ -489,6 +515,15 @@ class MigrateTrellisBlackBoxTest(unittest.TestCase):
         result = self.run_migrate(*self.migrate_args())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(snapshot(self.root), stable)
+
+        (self.root / "docs/rules/architecture.md").unlink()
+        (self.root / ".claude/hooks/dictionary_updates.py").unlink()
+        damaged = snapshot(self.root)
+        result = self.run_migrate(*self.migrate_args("--apply"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("docs/rules/architecture.md", result.stdout)
+        self.assertIn(".claude/hooks/dictionary_updates.py", result.stdout)
+        self.assertEqual(snapshot(self.root), damaged)
 
     def test_late_install_conflict_rejects_the_entire_plan_before_any_write(self):
         path = self.root / "docs/rules/harness.md"

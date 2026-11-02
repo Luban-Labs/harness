@@ -421,17 +421,25 @@ class SpecTemplateTest(HookCase):
         self.assertIn("「不改 \\x1b[31m红\\x1b[0m」", message)
         self.assertNotIn("\x1b", message)
 
-    def test_new_judgment_line_is_a_placeholder_in_both_kinds(self):
-        line = next(item for item in TEMPLATE.read_text(encoding="utf-8").splitlines()
-                    if item.startswith("- 新写或改的判断:"))
+    def test_four_impact_lines_are_placeholders_in_both_kinds(self):
+        lines = [item for item in TEMPLATE.read_text(encoding="utf-8").splitlines()
+                 if item.startswith(("- 整体:", "- 重排:", "- <被改的事实>", "- 复用:"))]
+        self.assertEqual(len(lines), 4)
+        self.assertTrue(lines[0].startswith("- 整体:"))
+        self.assertTrue(lines[1].startswith("- 重排:"))
+        self.assertTrue(lines[2].startswith("- <被改的事实>"))
+        self.assertTrue(lines[3].startswith("- 复用:"))
         for kind in ("功能", "记录"):
             with self.subTest(kind=kind):
                 self.reset_root()
-                self.assertIn(line, self.create(kind, kind).read_text(encoding="utf-8"))
+                created = self.create(kind, kind).read_text(encoding="utf-8")
+                for line in lines:
+                    self.assertIn(line, created)
                 spec = self.ready_spec(kind=kind)
                 text = spec.read_text(encoding="utf-8")
                 self.assertEqual(self.message(), "")
                 section = re.search(r"## 影响面\n\n.*?\n\n(?=## )", text, flags=re.S).group(0)
-                spec.write_text(text.replace(section, section.rstrip("\n") + "\n" + line + "\n\n"),
-                                encoding="utf-8")
-                self.assertIn("还留着骨架占位行", self.message())
+                for line in lines:
+                    spec.write_text(text.replace(section, section.rstrip("\n") + "\n" + line + "\n\n"),
+                                    encoding="utf-8")
+                    self.assertIn("还留着骨架占位行", self.message())
