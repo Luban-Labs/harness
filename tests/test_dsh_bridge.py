@@ -84,7 +84,7 @@ class BridgeTest(unittest.TestCase):
     def install_harness(self):
         hooks = self.project / ".claude/hooks"
         hooks.mkdir(parents=True)
-        for name in ("session_start.py", "stop_guard.py", "stop_evidence.py", "judgment_twins.py"):
+        for name in ("session_start.py", "stop_guard.py", "stop_evidence.py", "judgment_twins.py", "dictionary_updates.py"):
             shutil.copyfile(REPO / ".claude/hooks" / name, hooks / name)
         (self.project / ".scratch").mkdir()
         self.save(self.project / ".claude/settings.json", {"hooks": {

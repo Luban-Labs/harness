@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import time
 from datetime import datetime, timezone
 
@@ -18,6 +19,8 @@ GIT_VALUES = {"-C", "-c", "--git-dir", "--work-tree", "--namespace",
               "--super-prefix", "--config-env"}
 EDIT_TOOLS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path",
               "NotebookEdit": "notebook_path"}
+TURN_BUDGET = 8 * 1024 * 1024
+CODE_SUFFIXES = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
 COMMAND_TOOLS = {"exec", "exec_command", "shell", "local_shell_call", "write_stdin", "js"}
 EXCLUDED = {
     ".scratch",
@@ -306,6 +309,81 @@ def evidence_sources(payload):
     if not isinstance(transcript, str) or not transcript or not Path(transcript).is_file():
         return []
     return session_records(transcript)
+
+
+def turn_edits(payload, deadline):
+    """Successful edits in this turn, including children only after the parent turn opened."""
+    sources = evidence_sources(payload)
+    if not sources:
+        return []
+    transcript, *subagents = sources
+    reader = dsh_successful_edits if dsh_host() else successful_edits
+    edits, start = reader(transcript, tail=TURN_BUDGET, turn=True, deadline=deadline)
+    if start is not None:
+        for source in subagents:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("turn edit scan ran out of time")
+            if source.stat().st_mtime_ns >= start:
+                edits.extend(edit for edit in reader(source, tail=TURN_BUDGET, deadline=deadline)[0]
+                             if edit[0] is not None and edit[0] >= start)
+    return edits
+
+
+def git(cwd, deadline, *args):
+    """Run one read-only git command inside the time budget; its stdout, or None when git fails."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("repository check ran out of time")
+    result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, timeout=remaining)
+    return result.stdout.decode("utf-8", errors="replace") if result.returncode == 0 else None
+
+
+def locate(value, roots):
+    """Return (file, worktree root, path inside it) for an absolute path in one of the repo's worktrees."""
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        return None
+    path = Path(value).resolve()
+    for root in roots:
+        if path.is_relative_to(root):
+            return path, root, path.relative_to(root).as_posix()
+    return None
+
+
+def worktree_roots(cwd, deadline):
+    """The current repository's worktrees, deepest first so nested worktrees own their files."""
+    top = (git(cwd, deadline, "rev-parse", "--show-toplevel") or "").strip()
+    if not top:
+        return []
+    top = Path(top).resolve()
+    listing = git(top, deadline, "worktree", "list", "--porcelain") or ""
+    roots = {top} | {Path(line[len("worktree "):]).resolve()
+                     for line in listing.splitlines() if line.startswith("worktree ")}
+    return sorted(roots, key=lambda path: len(path.parts), reverse=True)
+
+
+def edit_pieces(tool, data):
+    """Yield (path, old, new); None means use that file's HEAD text."""
+    if tool == "FileChange":
+        for path, change in data.items():
+            if not isinstance(change, dict):
+                continue
+            kind = change.get("type")
+            if kind == "add" and isinstance(change.get("content"), str):
+                yield path, "", change["content"]
+            elif kind == "delete":
+                yield path, change.get("content"), ""
+            elif kind == "update" and isinstance(change.get("unified_diff"), str):
+                lines = change["unified_diff"].splitlines()
+                old = "\n".join(line[1:] for line in lines if line.startswith("-") and not line.startswith("---"))
+                new = "\n".join(line[1:] for line in lines if line.startswith("+") and not line.startswith("+++"))
+                yield change.get("move_path") or path, old, new
+    elif tool in ("Edit", "MultiEdit"):
+        changes = [data] if tool == "Edit" else data.get("edits")
+        for change in changes if isinstance(changes, list) else ():
+            if isinstance(change, dict):
+                yield data.get("file_path"), change.get("old_string"), change.get("new_string")
+    elif tool == "Write" and isinstance(data.get("content"), str):
+        yield data.get("file_path"), None, data["content"]
 
 
 def turn_boundary(row):

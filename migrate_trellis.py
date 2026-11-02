@@ -846,6 +846,7 @@ def _plan_install(plan):
         (HARNESS / ".claude/hooks/stop_guard.py", Path(".claude/hooks/stop_guard.py")),
         (HARNESS / ".claude/hooks/stop_evidence.py", Path(".claude/hooks/stop_evidence.py")),
         (HARNESS / ".claude/hooks/judgment_twins.py", Path(".claude/hooks/judgment_twins.py")),
+        (HARNESS / ".claude/hooks/dictionary_updates.py", Path(".claude/hooks/dictionary_updates.py")),
     )
     base = init.Plan(plan.root)
     for src, rel in expected_files:
@@ -860,6 +861,10 @@ def _plan_install(plan):
         created[plan.root / init.CORE_JUDGMENTS] = init.empty_core_judgments()
     except (OSError, UnicodeError, ValueError) as exc:
         plan.conflict(f"无法从 templates/core-judgments.md 读取空表: {exc}")
+    try:
+        created[plan.root / init.ARCHITECTURE] = init.empty_architecture()
+    except (OSError, UnicodeError, ValueError) as exc:
+        plan.conflict(f"无法从 templates/architecture.md 读取空总图: {exc}")
     for path, content in created.items():
         if not plan._safe_parents(path):
             continue
@@ -910,6 +915,7 @@ def _fully_migrated(root):
         (HARNESS / ".claude/hooks/stop_guard.py", Path(".claude/hooks/stop_guard.py")),
         (HARNESS / ".claude/hooks/stop_evidence.py", Path(".claude/hooks/stop_evidence.py")),
         (HARNESS / ".claude/hooks/judgment_twins.py", Path(".claude/hooks/judgment_twins.py")),
+        (HARNESS / ".claude/hooks/dictionary_updates.py", Path(".claude/hooks/dictionary_updates.py")),
     ):
         target = root / rel
         if (not _safe_without_follow(root, target) or target.is_symlink() or not target.is_file()
@@ -963,7 +969,8 @@ def _fully_migrated(root):
                 problems.append("AGENTS.md 路由表")
         except (OSError, UnicodeError, ValueError):
             problems.append("AGENTS.md")
-    for rel in (Path("docs/decisions.md"), Path(".scratch/.gitkeep")):
+    for rel in (Path(init.ARCHITECTURE), Path(init.CORE_JUDGMENTS),
+                Path("docs/decisions.md"), Path(".scratch/.gitkeep")):
         path = root / rel
         if (not _safe_without_follow(root, path) or path.is_symlink()
                 or not path.is_file()):

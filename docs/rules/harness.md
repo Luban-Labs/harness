@@ -1,6 +1,6 @@
 # Task 规则
 
-周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问)→ 按「何时建 Task」判,命中才建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 动手前清点影响面(新写或改判断先查核心判断表)→ 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件三问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID 与建 Task 命令、本会话认领的 Task、被别人接手的提示、「等你的事」、每个进行中 Task 一行(含认领会话在做、挂着还是断了)、待开工 Task 名,核心判断表有概念时末尾附一行概念清单(最多 20 个,超出写「等 N 个」);没有 in-progress(含已 done 未归档)、ready-for-agent 与「等你的事」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,对它们和本会话写过的 spec 查格式,本轮新写的函数像判断且库里已有同类时点名这些同类,每个用户回合最多提醒一次。
+周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问)→ 按「何时建 Task」判,命中才建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 建了 Task 的按「设计从整体到局部」走四步,没建 Task 的走③④→ 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件三问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID 与建 Task 命令、本会话认领的 Task、被别人接手的提示、「等你的事」、每个进行中 Task 一行(含认领会话在做、挂着还是断了)、待开工 Task 名,核心判断表有概念时末尾附一行完整概念清单;清单里还点出唯一实现路径找不到的概念,最多列 3 个,超出时写总数;没有 in-progress(含已 done 未归档)、ready-for-agent 与「等你的事」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,对它们和本会话写过的 spec 查格式,本轮新写的函数像判断且库里已有同类时点名这些同类,本轮改了职责表点名的定义却没同步字典时提醒更新,每个用户回合最多提醒一次。
 
 ## spec 格式
 
@@ -41,9 +41,18 @@
 - spec 改动(含本 Task 的 `issues/`)只在两个时刻提交:本 Task 的代码合进 main 时(在主工作树合并或拉下合并后的 main,再提交);收件归档时,不论有没有代码(`git add -A .scratch/<名> .scratch/archive/<名>`)。中途写完进展不提交;owner 说已归档 Task 的 `[你]` 项已做,勾完随本会话下一次提交带上。spec 提交不单独推送,跟下一次按「推进与请示」可以推的推送一起走。
 - 中途的 spec 留在主工作树,看板、Stop 与接手读的都是磁盘上的文件(没认领时 worktree 里的兜底读已提交的副本,可能落后)。主工作树里不跑 `reset --hard`、`checkout -- .`、`restore .`、`clean`、`stash`、`add -A`、`commit -a`;拉取用 `pull --ff-only` 或 `pull --rebase --autostash`;提交只 add 自己的文件。
 
-## 改动的影响面
+## 设计从整体到局部
 
-- 改动会改变一个已有事实时,动手前清点影响面。事实指一个值的写法、一个字段或词的含义、一条规则、一个接口、一个判断;改代码、规则、文档、流程都算。纯新增、没有读取方的不清点;新写或改一个判断不算纯新增,另照「核心判断只写一份」查同类。
+1. ① 梳理整体:建了 Task 的先读项目 `docs/rules/architecture.md` 总图和 `docs/rules/core-judgments.md` 职责表,说清需求落在哪条业务链、涉及哪些块、各职责现在由谁负责、有几份。总图还没有内容时,先按当前代码与模块文档补出这次涉及的部分。
+2. ② 要不要重排:判断加入需求后原结构还顺不顺;顺就沿原结构加,不顺先定新结构、更新设计中的总图,再动手。重排超出本 Task 的目标或授权范围时先问 owner。实现中发现改变结构的新认识就停下回到②,补齐设计和影响面后继续。
+3. ③ 扫影响面:按确定的结构清点所有使用方,执行「改动的影响面」。
+4. ④ 复用:从①查出的负责处调用;老实现有错就修负责处,语义不同就另起名,执行「核心判断只写一份」。
+
+建了 Task 的改动走①至④,写进 spec 的 `## 影响面`;没有建 Task 的只走③④,写进提交信息或交付说明。结构改变时同步更新项目总图、相关模块文档和职责表,完成后再通读总图与各负责处,收掉过时的分支、名称与描述。
+
+### 改动的影响面
+
+- 改动会改变一个已有事实时,动手前清点影响面。事实指一个值的写法、一个字段或词的含义、一条规则、一个接口、一个判断;改代码、规则、文档、流程都算。纯新增、没有读取方的不清点;新写或改一个判断、业务数、限制或保护不算纯新增,另照「核心判断只写一份」查同类。
 - 从被改的事实出发,按名字(字段名、函数名、规则关键词、文档标题)把所有读它、拿它比较、照它执行的地方逐个过一遍并列出。由只读代理去查,派不了代理时自己按名字全库搜;作者回忆只作补充。
 - 查三类连接:
   - 引用:调用、导入、链接。
@@ -53,17 +62,17 @@
 - 每个使用方三选一:跟改;不受影响,写理由;已知差异,写记在哪。查出的副本能收成一处的收成一处。
 - 删掉或置空一个东西时,同样按名字查它被拿来做什么:除了显示,它可能还在配对、去重、核对里当区分的依据。
 - 分步上线时,每一步上线后的中间状态也要自洽:先上替代品,再拿掉旧依赖;顺序做不到就给中间状态加保护,写进这一步的影响面,拦截、停用类的保护先问 owner。只写「那是下一步的事」不算处理。
-- 有 Task 的写进 spec 的 `## 影响面`,没建 Task 的写进提交信息或交付说明;实现中发现新的使用方随时补。交审时把影响清单附给审查者。
+- 实现中发现新的使用方随时补进影响清单,交审时把清单附给审查者。
 - 建单时还没定改法的(记下以后做的 bug、待办),`## 影响面` 写「开工前清点」,开工的会话动手前补上。
 - 旧 spec 没有 `## 影响面`,被 Stop 提示缺节时补上:还没动手的照本节查;做到一半的,已完成的部分写「建单时未清点」,还没做的步骤动手前照本节查并逐项写上;全部做完、当时没查的写「无(建单时未清点)」。收件时没做的步骤不能只留「建单时未清点」。
 
-## 核心判断只写一份
+### 核心判断只写一份
 
-- 核心判断:被两处以上用来做决定的「是不是同一个 X」或「把 X 归一成可比的键」。项目在 docs/rules/core-judgments.md 维护一张表,每个概念一节:一句定义、唯一实现、语义例外、待收口的副本。项目有 CONTEXT.md 的,概念名沿用其中的词。项目还没有这张表时,下面的查表与登记跳过,待收口写进影响面的已知差异。
-- 新写或改一个判断前:先查表,再按概念(同义词、涉及的字段、被比较的值,不只函数名)全库找同类写法。有就调用它,不另写;写出名字像判断的新函数时,Stop 会点名库里的同类(见「Stop 提醒」的同类判断提醒),但它只按名字找,不能代替这一步。
+- 核心判断表登记被两处以上用来做决定的判断、业务数、限制或保护。项目在 docs/rules/core-judgments.md 维护这张职责表,每个概念一节:一句定义、唯一实现、语义例外、待收口的副本。唯一实现写成反引号包住的项目根相对 `路径:函数名`、`路径:类名` 或 `路径:类名.方法名`,口径未定时写「待定」。项目有 CONTEXT.md 的,概念名沿用其中的词。项目还没有这张表时,下面的查表与登记跳过,待收口写进影响面的已知差异。
+- 新写或改一个判断、业务数、限制或保护前,先查表,再按概念、同义词、涉及的字段和被比较的值全库找同类写法;现成职责正确就共用,有错就改负责处,意思不同就另起名;Stop 只按名字点出同类,不能代替这一步。
 - 现成的有毛病:修现成那一份,修它算本次改动,按「改动的影响面」清点它的使用方。这次不修要有 owner 原话作出处:建了 Task 的写进 spec 的「不做」,没建 Task 的写进提交信息或交付说明;再在表里记成待收口、在影响面写成已知差异;不在自己模块另写一份绕过去。
 - 使用方要的意思本来就不同(例如比价要不要把相邻区当同区):在表里写明例外和理由,另起名字,不复用原名。
-- 一个判断出现第二个使用方,或核实已有两份以上(影响面清点查出的;Stop 点名的同类先读过、确认是同一判断)时当场登记,各份列进待收口。各份口径不一致时唯一实现写「待定」;待定期间要用它的改动,有收口设计的(spec 或设计稿里写明了以后的唯一实现)照设计做、不另请示,没有收口设计的先问 owner 用哪份。建表或升级时,已知还在多处各写的判断一并登记。文档或注释里写着「这里另用一套」的,是待收口项,登记进表,不当成事实记录。
+- 一个判断、业务数、限制或保护出现第二个使用方,或核实已有两份以上(影响面清点查出的;Stop 点名的同类先读过、确认是同一概念)时当场登记,各份列进待收口。各份口径不一致时唯一实现写「待定」;待定期间要用它的改动,有收口设计的(spec 或设计稿里写明了以后的唯一实现)照设计做、不另请示,没有收口设计的先问 owner 用哪份。建表或升级时,已知还在多处各写的判断、业务数、限制或保护一并登记。文档或注释里写着「这里另用一套」的,是待收口项,登记进表,不当成事实记录。
 
 ## 推进与请示
 
@@ -80,7 +89,7 @@
 - 收件时逐行检查根 `AGENTS.md` 路由表登记的文档,并对每项回答“已更新”或“不受影响”。
 - 回答“已更新”时必须真实修改对应文档。
 - 第一问同时逐项核对 spec 的 `## 影响面`:「跟改」的已真改,「不受影响」的理由仍成立,「已知差异」已记在写明的地方,不再留「开工前清点」。
-- 第一问还要答:本 Task 新写或改过的核心判断,docs/rules/core-judgments.md 是否已同步(新登记、实现位置、待收口)。
+- 第一问还要答:本 Task 新写或改过的判断、业务数、限制或保护,docs/rules/core-judgments.md 是否已同步(新登记、唯一实现位置、待收口);结构改变时 docs/rules/architecture.md 与相关模块文档是否已同步。
 - 收件第二问回答“是否有需沉淀的规则”;需要沉淀时写入 `docs/rules/<主题>.md`,新增主题时在根 `AGENTS.md` 路由表增加一行。
 - 收件第三问回答“正文和最终状态一致吗”:目标、不做、实现决策、验收与实际做成的一致,过时的已删;不一致先改正文。
 - 有 ticket 的 Task(头部有 `Tickets:` 行):做完一张就关一张(GitHub 关 issue,本地改该文件 `Status: done`)并同时写一行进展;正在做哪张只写在进展行。
@@ -108,13 +117,15 @@ DSH 的取证只读调度器传来的 v4 zstd 日志路径,只算 append 的 too
 
 另有同类判断提醒,与有没有 Task、有没有认领无关,每次停下都查:本轮新写的函数名字像一个判断、cwd 所在 git 仓库里已有同类时,每个新函数一行列出同类的位置。证据只认本会话及其子代理记录末尾 8MB 里本轮的成功编辑(Claude 从上一回合的结束记录 `stop_hook_summary`/`turn_duration` 之后起,回合中途到达的消息、任务通知都算本轮;Codex 从最后一个 `task_started` 起;子代理只算本轮开始之后的),不看工作树里别人的改动:Edit 与 MultiEdit 的 new_string 有、old_string 没有的定义;Write 的内容里 HEAD 版本没有的定义;Codex FileChange 新增文件的定义与 update 里 `+` 行的定义(`-` 行也有的不算)。只看这个仓库及其 worktree 里的 `.py` `.js` `.jsx` `.ts` `.tsx` `.mjs` `.cjs`,测试文件(`tests/` `test/` `__tests__/` 下,或 `test_*.py` `*_test.py` `*-test.*` `*.test.*` `*.spec.*`)、`.scratch/` 下的文件(那里只放 spec 与归档材料)与超过 400 字的压缩长行不看。函数名按 snake_case 与 camelCase 拆词,含一个判断类词(same、match、key、normalize、identity、canonical、equal、compare、alias 等)和至少一个名词才算像判断;以动作动词(list、save、fetch、render、get、parse 等)或 test 开头的不算,判断类词只有 key 且是凭据、按键或存储用的键(api_key、keyDown、sort_key、cache_key)也不算。同类是 `git grep` 找到的、按同一口径像判断且名字含同一个名词的定义,不含测试文件、`.scratch/` 与它自己。每个新函数最多列 8 个同类(先每个文件各出一个再轮第二个,同一轮里公开名字排前)并写总数,一次最多讲 3 个新函数;项目核心判断表有概念时末尾让先对照表。它只提醒,不判对错、不复查后来改没改;用 shell 命令写的代码、不在 git 里、超过 1.5 秒或出错时不出这一项,也不影响别的提醒。
 
+另有字典更新提醒,与有没有 Task 无关:本轮成功编辑碰到职责表「唯一实现」点名的路径,且本轮编辑文本出现该名字时,比较该文件 HEAD 与磁盘现状中该名字的全部定义签名;两边不同且同轮没改职责表或总图时,在同一次 Stop 输出点名概念、名字与文件,指向「设计从整体到局部」。Edit/MultiEdit 按 file_path 取路径、按 old/new 找名字;Write、不带内容的删除与 Codex move_path 的原路径整篇换掉旧文本,该路径点名的名字都算;其余 Codex FileChange 按 content 或 diff 增删行找名字。只比对 Python 文件:用 ast 整文件解析任意嵌套层的 FunctionDef、AsyncFunctionDef、ClassDef 与模块、类层级的赋值,签名取外层名字、装饰器、类型参数、参数、返回注解、类的基类与关键字,赋值只认名字在哪一层;其他语言的点名不比对。HEAD 没有该文件就跳过;HEAD 有而磁盘没有时按删除处理;任一侧解析失败只跳过该文件。以 HEAD 为基线:之前回合未提交的签名改动,本轮再改到这个名字时会再提醒一次。成功编辑及本回合边界复用 `.claude/hooks/stop_evidence.py:turn_edits`,职责表条目复用 `.claude/hooks/session_start.py:core_judgment_entries`,整文件签名复用 `.claude/hooks/dictionary_updates.py:definition_signatures`;整项限时 1.5 秒,超时或异常只跳过这项。唯一实现路径找不到属于开场静态检查,不在 Stop 重复提醒。
+
 ## 安装与升级
 
 - DSH 用全局 `~/.dsh/hooks/claude-code.json` 给 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop、SubagentStart、SubagentStop 各登记一条 `python3 "<harness 仓库绝对路径>/dsh/cc_hooks.py"`;从 profile 的 `cordis.patch.yml` 删除 `projectDir` 后重启 DSH。调度器每事件现读 CC 用户设置、受 CC 信任记录控制的项目设置和启用插件;不再在 DSH 配置手抄项目 hook。用户级配置由 owner 落盘,init 只打印说明与未信任提示。
 - DSH 调度器传 `HARNESS_HOST=dsh`、绝对 `CLAUDE_PROJECT_DIR` 和额外日志路径,`transcript_path` 仍为空。项目 settings 取启动目录,local settings 可按 CC 检查归主树,信任键先查 canonical 根再查启动路径祖先;hook 项目目录取该会话启动目录,不随 working_directory 改变。协议与本机 CC 证据见 harness 仓库 `dsh/research_evidence.md`。
 - DSH 桥接没有 PermissionRequest、PostToolUseFailure、PreCompact、SessionEnd、StopFailure、Notification 事件,这些 CC hook 不能运行;启用的 preset 还须能扫描 skill,只扫 `~/.dsh/skills` 的 preset 看不到项目 `.agents/skills`。
 
-- 两个 hook 脚本住在项目自己的 `.claude/hooks/`,`.codex/hooks` 是指过去的符号链接(init 会放好)。Claude 在 `.claude/settings.json` 中按以下片段配置,不设 `matcher`,保留现有其他配置:
+- hook 脚本住在项目自己的 `.claude/hooks/`,`.codex/hooks` 是指过去的符号链接(init 会放好)。Claude 在 `.claude/settings.json` 中按以下片段配置,不设 `matcher`,保留现有其他配置:
 
 ```json
 {
@@ -127,6 +138,6 @@ DSH 的取证只读调度器传来的 v4 zstd 日志路径,只算 append 的 too
 
 - Codex 在项目根 `.codex/hooks.json` 中按同一片段配置,command 改为 `python3 .codex/hooks/session_start.py` 与 `python3 .codex/hooks/stop_guard.py`(Codex 从项目根启动);Codex ≥0.153 从项目根到当前目录加载它。
 - Codex 的 hook 必须先被信任才会执行:init 装完会打印两条 `[hooks.state."<路径>:<事件>:0:0"]` 信任条目,追加到 `~/.codex/config.toml` 即可(信任按 hook 定义哈希:改脚本内容不用重信,改 command 或 timeout 要重信);也可在项目目录进 `codex` 跑一次 `/hooks`。仅做验证时可临时加 `--dangerously-bypass-hook-trust`,不得写进持久配置。
-- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py`、`judgment_twins.py` 和 `docs/rules/harness.md`;init 会将这五个文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/SKILL.md`、`templates/spec.md`、`references/to-spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 解析(含 Task 目录、Scope 与类型)、stop_evidence.py 的记录取证与 judgment_twins.py 的同类判断提醒,四个脚本要同版本;只缺 judgment_twins.py 时其余提醒照常,只少这一项。项目里改过的文件不整篇覆盖:先 diff,只合入上游的改动,保留项目自己的行。项目 AGENTS.md 的路由表要有 templates/AGENTS.md 的每条固定路由(按「读」列认),升级时缺哪行照抄哪行,已有的不动;迁移会自动补齐。
-- `docs/rules/core-judgments.md` 归项目所有:init、迁移与升级时项目没有,就照 harness 的 `templates/core-judgments.md` 标记行之前的说明建空表;有了不动、不覆盖。
-- 「改动的影响面」「核心判断只写一份」两个节名被项目路由表、hook 提醒文案与仓库外的规则按「文件路径+节名」指向,改名时没有检查会报,要同步改这些指向。
+- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py`、`judgment_twins.py`、`dictionary_updates.py` 和 `docs/rules/harness.md`;init 会将这五个脚本与规则文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/SKILL.md`、`templates/spec.md`、`references/to-spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 与职责表解析、stop_evidence.py 的本回合编辑取证、judgment_twins.py 的同类判断提醒和 dictionary_updates.py 的字典更新提醒,五个脚本要同版本;单项提醒脚本缺失或出错只跳过该项。项目里改过的文件不整篇覆盖:先 diff,只合入上游的改动,保留项目自己的行。项目 AGENTS.md 的路由表要有 templates/AGENTS.md 的每条固定路由(按「读」列认),升级时缺哪行照抄哪行,已有的不动;迁移会自动补齐。
+- `docs/rules/core-judgments.md` 与 `docs/rules/architecture.md` 归项目所有:init、迁移与升级时项目没有,分别照 harness 的 `templates/core-judgments.md` 与 `templates/architecture.md` 标记行之前建空文件;有了不动、不覆盖。
+- 改「设计从整体到局部」「改动的影响面」「核心判断只写一份」节名时,同步核对仓库内及已装项目的路由表、interview-me 引用和 hook 提醒文案。
