@@ -5,6 +5,7 @@ import os
 import runpy
 import subprocess
 import sys
+import time
 import unittest
 from datetime import datetime, timedelta
 
@@ -20,9 +21,9 @@ class SessionStartTest(HookCase):
         output = self.run_session(payload)
         return json.loads(output)["hookSpecificOutput"]["additionalContext"] if output else ""
 
-    def board(self, cwd=None):
+    def board(self, cwd=None, *flags):
         result = subprocess.run(
-            [sys.executable, str(SESSION_START), "--board", "--cwd", str(cwd or self.root)],
+            [sys.executable, str(SESSION_START), "--board", *flags, "--cwd", str(cwd or self.root)],
             input="", text=True, capture_output=True, cwd=self.root, timeout=60,
             env={**os.environ, "HOME": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"},
         )
@@ -106,6 +107,52 @@ class SessionStartTest(HookCase):
         self.assertIn("待开工 Task: r00, r01, r02, r03, r04 等 7 个;", board)
         self.assertNotIn("- t11:", board)
         self.assertNotIn("- t11 ·", board)
+
+    def test_json_board_lists_everything_uncapped(self):
+        for index in range(12):
+            self.spec(f"t{index:02d}", "Status: in-progress\n会话: abcdefgh\n\n## 进展\n"
+                      "- 10-22 10:00 done: ok | next: 你: 审核\n")
+        self.spec("close", "Status: in-progress\n\n## 验收\n- [x] [我] test\n\n"
+                  "## 进展\n- 10-22 10:00 done: ok | next: 我: 收件\n")
+        self.spec("done", "Status: done\n")
+        for index in range(7):
+            self.spec(f"r{index:02d}", "Status: ready-for-agent\n")
+        for index in range(9):
+            self.spec(f"a{index}", "Status: done\n\n## 验收\n- [ ] [你] 确认\n", archive=True)
+        record = self.home / ".claude/projects/p/abcdefgh.jsonl"
+        record.parent.mkdir(parents=True)
+        record.write_text("{}\n", encoding="utf-8")
+        stale = time.time() - 20.5 * 3600
+        os.utime(record, (stale, stale))
+        data = json.loads(self.board(None, "--json"))
+        self.assertEqual((data["version"], data["project"]), (1, self.root.name))
+        self.assertEqual(len(data["owner"]), 21)
+        self.assertEqual(data["owner"][0]["task"], "t00")
+        self.assertEqual((data["owner"][0]["item"], data["owner"][0]["archived"]), ("审核", False))
+        self.assertTrue(data["owner"][0]["age"])
+        self.assertEqual(data["owner"][-1], {"task": "a8", "item": "确认", "archived": True, "age": None})
+        rows = {row["name"]: row for row in data["active"]}
+        self.assertEqual(len(rows), 14)
+        self.assertEqual({key: rows["t11"][key] for key in ("status", "ball", "next", "session")},
+                         {"status": "in-progress", "ball": "你", "next": "审核", "session": "abcdefgh"})
+        self.assertEqual((rows["t11"]["session_state"], rows["t11"]["session_kind"]), ("断了 20 小时", "断了"))
+        self.assertEqual((rows["close"]["session_state"], rows["close"]["session_kind"]), ("", ""))
+        self.assertEqual((rows["close"]["ball"], rows["close"]["session"]), ("待结案", ""))
+        self.assertEqual((rows["done"]["ball"], rows["done"]["age"]), ("待归档", None))
+        self.assertEqual(data["ready"], [f"r{index:02d}" for index in range(7)])
+
+    def test_json_board_on_an_empty_project_and_bad_flags(self):
+        self.assertEqual(json.loads(self.board(None, "--json")),
+                         {"version": 1, "project": self.root.name, "owner": [], "active": [], "ready": []})
+        self.spec("ready", "Status: ready-for-agent\n")
+        self.assertEqual(json.loads(self.board(None, "--json"))["ready"], ["ready"])
+        for argv in (["--board", "--json", "--cwd"],
+                     ["--board", "--cwd", str(self.root), "--json"], ["--board", "--json", "--json"]):
+            with self.subTest(argv=argv):
+                result = subprocess.run([sys.executable, str(SESSION_START), *argv], input="", text=True,
+                                        capture_output=True, cwd=self.root / "home", timeout=60,
+                                        env={**os.environ, "HOME": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"})
+                self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
 
     def test_active_next_truncates_at_80_characters_in_hook_and_cli(self):
         for length in (79, 80, 81):

@@ -439,14 +439,94 @@ def claim_state(claim, probe):
     return cache[claim]
 
 
+def owner_items(active, archived):
+    """等你的事: in-progress Tasks whose ball is 你, then unchecked [你] items of archived Tasks."""
+    items = [(task, task["next"], False) for task in active
+             if task["status"] == "in-progress" and task["ball"] == "你"]
+    items.extend((task, item, True) for task in archived
+                 for checked, actor, item in task["checks"]
+                 if actor == "你" and not checked)
+    return items
+
+
+def task_ball(task):
+    return ("待归档" if task["status"] == "done" else
+            "待结案" if ready_to_close(task) else task["ball"])
+
+
+def claim_states(tasks, *, dsh_session_records=(), dsh_host=False):
+    """Each Task's claim state within one 3-second probe; "" when unclaimed or unknown."""
+    clock = time.time()
+    deadline = time.monotonic() + 3
+    try:
+        home = Path.home()
+    except Exception:
+        home = None
+    registrations = []
+    valid = 0
+    if home and any(task["status"] == "in-progress" and task["session"] for task in tasks):
+        try:
+            for path in (home / ".claude/sessions").glob("*.json"):
+                if time.monotonic() >= deadline:
+                    break
+                try:
+                    entry = json.loads(path.read_text(encoding="utf-8"))
+                    session_id = entry.get("sessionId") if isinstance(entry, dict) else None
+                    if isinstance(session_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{8,}", session_id):
+                        registrations.append(entry)
+                        if type(entry.get("pid")) is int and entry["pid"] > 0 and isinstance(entry.get("procStart"), str) and entry["procStart"]:
+                            valid += 1
+                except (OSError, UnicodeError, ValueError):
+                    continue
+        except (OSError, ValueError):
+            pass
+    probe = {"home": home, "now": clock, "deadline": deadline,
+             "registrations": registrations, "valid_registrations": valid,
+             "indexes": {}, "processes": {}, "states": {},
+             "dsh_session_records": dsh_session_records, "dsh_host": dsh_host}
+    states = []
+    for task in tasks:
+        state = ""
+        if home and time.monotonic() < deadline and task["status"] == "in-progress" and task["session"]:
+            try:
+                state = claim_state(task["session"], probe)
+            except Exception:
+                pass
+        states.append(state)
+    return states
+
+
+def active_rows(tasks, states, now):
+    """Each active Task as the board shows it; the text board and the JSON both draw these rows."""
+    return [{"name": task["name"], "status": task["status"], "ball": task_ball(task), "next": task["next"],
+             "session": session_short(task["session"]) if task["session"] else "",
+             "session_state": state, "session_kind": state.split(" ", 1)[0],
+             "age": age(task, now) if task["progress"] else None}
+            for task, state in zip(tasks, states)]
+
+
+def owner_rows(items, now):
+    return [{"task": task["name"], "item": item, "archived": is_archived,
+             "age": None if is_archived else age(task, now)}
+            for task, item, is_archived in items]
+
+
+def board_json(root, *, dsh_session_records=(), dsh_host=False):
+    """The whole board as data, nothing capped, for tools such as the task-board pane mod.
+
+    The pane reads version 1: renaming or dropping a field breaks it, so bump the version.
+    """
+    active, ready, archived = load_tasks(root)
+    now = datetime.now()
+    states = claim_states(active, dsh_session_records=dsh_session_records, dsh_host=dsh_host)
+    return {"version": 1, "project": Path(root).name, "owner": owner_rows(owner_items(active, archived), now),
+            "active": active_rows(active, states, now), "ready": ready}
+
+
 def board(root, session_id="", include_session=True, *, dsh_session_records=(),
           allow_own=True, dsh_host=False):
     active, ready, archived = load_tasks(root)
-    owner = [(task, task["next"], False) for task in active
-             if task["status"] == "in-progress" and task["ball"] == "你"]
-    owner.extend((task, item, True) for task in archived
-                 for checked, actor, item in task["checks"]
-                 if actor == "你" and not checked)
+    owner = owner_items(active, archived)
     if not active and not ready and not owner:
         return ""
     lines = []
@@ -468,55 +548,22 @@ def board(root, session_id="", include_session=True, *, dsh_session_records=(),
     if owner:
         lines.append(f"[harness] 等你的事 {len(owner)} 条:")
         now = datetime.now()
-        for task, item, is_archived in owner[:OWNER_LIMIT]:
-            lines.append(f"- {task['name']}(已归档): {item}" if is_archived
-                         else f"- {task['name']}: {item}({age(task, now)}前)")
+        for row in owner_rows(owner[:OWNER_LIMIT], now):
+            lines.append(f"- {row['task']}(已归档): {row['item']}" if row["archived"]
+                         else f"- {row['task']}: {row['item']}({row['age']}前)")
         if len(owner) > OWNER_LIMIT:
             lines.append(f"- 等 {len(owner)} 条")
     if active:
         lines.append(f"[harness] 进行中 Task {len(active)} 个:")
         now = datetime.now()
-        clock = time.time()
-        deadline = time.monotonic() + 3
-        try:
-            home = Path.home()
-        except Exception:
-            home = None
-        registrations = []
-        valid = 0
-        if home and any(task["status"] == "in-progress" and task["session"] for task in active[:ACTIVE_LIMIT]):
-            try:
-                for path in (home / ".claude/sessions").glob("*.json"):
-                    if time.monotonic() >= deadline:
-                        break
-                    try:
-                        entry = json.loads(path.read_text(encoding="utf-8"))
-                        session_id = entry.get("sessionId") if isinstance(entry, dict) else None
-                        if isinstance(session_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{8,}", session_id):
-                            registrations.append(entry)
-                            if type(entry.get("pid")) is int and entry["pid"] > 0 and isinstance(entry.get("procStart"), str) and entry["procStart"]:
-                                valid += 1
-                    except (OSError, UnicodeError, ValueError):
-                        continue
-            except (OSError, ValueError):
-                pass
-        probe = {"home": home, "now": clock, "deadline": deadline,
-                 "registrations": registrations, "valid_registrations": valid,
-                 "indexes": {}, "processes": {}, "states": {},
-                 "dsh_session_records": dsh_session_records, "dsh_host": dsh_host}
-        for task in active[:ACTIVE_LIMIT]:
-            session = f"会话 {session_short(task['session'])}" if task["session"] else "无人认领"
-            if home and time.monotonic() < deadline and task["status"] == "in-progress" and task["session"]:
-                try:
-                    state = claim_state(task["session"], probe)
-                    if state:
-                        session += f"({state})"
-                except Exception:
-                    pass
-            when = f"{age(task, now)}前" if task["progress"] else "无进展"
-            ball = ("待归档" if task["status"] == "done" else
-                    "待结案" if ready_to_close(task) else task["ball"])
-            lines.append(f"- {task['name']} · {session} · {when} · {ball}: {task['next'][:80]}")
+        shown = active[:ACTIVE_LIMIT]
+        states = claim_states(shown, dsh_session_records=dsh_session_records, dsh_host=dsh_host)
+        for row in active_rows(shown, states, now):
+            session = f"会话 {row['session']}" if row["session"] else "无人认领"
+            if row["session_state"]:
+                session += f"({row['session_state']})"
+            when = f"{row['age']}前" if row["age"] else "无进展"
+            lines.append(f"- {row['name']} · {session} · {when} · {row['ball']}: {row['next'][:80]}")
         if len(active) > ACTIVE_LIMIT:
             lines.append(f"- 等 {len(active)} 个")
     if ready:
@@ -597,14 +644,18 @@ def new_task(args):
 def main():
     if "--board" in sys.argv[1:]:
         args = sys.argv[1:]
-        if args[0] != "--board" or len(args) not in (1, 3) or (len(args) == 3 and args[1] != "--cwd"):
+        as_json = args[1:2] == ["--json"]
+        rest = args[2:] if as_json else args[1:]
+        if args[0] != "--board" or rest and (len(rest) != 2 or rest[0] != "--cwd"):
             return
-        cwd = Path(args[2] if len(args) == 3 else os.getcwd())
+        cwd = Path(rest[1] if rest else os.getcwd())
         if not cwd.is_dir():
             return
         _, root = project_roots(cwd)
         if root:
-            output = board(root, include_session=False, dsh_host=os.environ.get("HARNESS_HOST") == "dsh")
+            dsh_host = os.environ.get("HARNESS_HOST") == "dsh"
+            output = (json.dumps(board_json(root, dsh_host=dsh_host), ensure_ascii=False) if as_json
+                      else board(root, include_session=False, dsh_host=dsh_host))
             if output:
                 os.write(1, (output + "\n").encode("utf-8"))
         return
