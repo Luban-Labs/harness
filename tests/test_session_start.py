@@ -124,7 +124,7 @@ class SessionStartTest(HookCase):
         record.write_text("{}\n", encoding="utf-8")
         stale = time.time() - 20.5 * 3600
         os.utime(record, (stale, stale))
-        data = json.loads(self.board(None, "--json"))
+        data = json.loads(self.board(None, "--json", "--session", "abcdefgh-1234"))
         self.assertEqual((data["version"], data["project"]), (1, self.root.name))
         self.assertEqual(len(data["owner"]), 21)
         self.assertEqual(data["owner"][0]["task"], "t00")
@@ -133,8 +133,11 @@ class SessionStartTest(HookCase):
         self.assertEqual(data["owner"][-1], {"task": "a8", "item": "确认", "archived": True, "age": None})
         rows = {row["name"]: row for row in data["active"]}
         self.assertEqual(len(rows), 14)
-        self.assertEqual({key: rows["t11"][key] for key in ("status", "ball", "next", "session")},
-                         {"status": "in-progress", "ball": "你", "next": "审核", "session": "abcdefgh"})
+        self.assertEqual({key: rows["t11"][key] for key in ("status", "ball", "next", "done", "session", "mine")},
+                         {"status": "in-progress", "ball": "你", "next": "审核", "done": "ok", "session": "abcdefgh",
+                          "mine": True})
+        self.assertEqual((rows["close"]["done"], rows["close"]["mine"]), ("ok", False))
+        self.assertFalse(json.loads(self.board(None, "--json"))["active"][0]["mine"])
         self.assertEqual((rows["t11"]["session_state"], rows["t11"]["session_kind"]), ("断了 20 小时", "断了"))
         self.assertEqual((rows["close"]["session_state"], rows["close"]["session_kind"]), ("", ""))
         self.assertEqual((rows["close"]["ball"], rows["close"]["session"]), ("待结案", ""))
@@ -147,7 +150,8 @@ class SessionStartTest(HookCase):
         self.spec("ready", "Status: ready-for-agent\n")
         self.assertEqual(json.loads(self.board(None, "--json"))["ready"], ["ready"])
         for argv in (["--board", "--json", "--cwd"],
-                     ["--board", "--cwd", str(self.root), "--json"], ["--board", "--json", "--json"]):
+                     ["--board", "--cwd", str(self.root), "--json"], ["--board", "--json", "--json"],
+                     ["--board", "--json", "--session"], ["--board", "--session", "x", "--json"]):
             with self.subTest(argv=argv):
                 result = subprocess.run([sys.executable, str(SESSION_START), *argv], input="", text=True,
                                         capture_output=True, cwd=self.root / "home", timeout=60,

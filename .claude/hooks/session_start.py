@@ -22,6 +22,7 @@ STATUS = {"ready-for-agent", "in-progress", "done"}
 HEADER = re.compile(r"^([^:#：]+)[：:]\s*(.*)$")
 CHECK = re.compile(r"^\s*-\s*\[([ xX])\]\s*\[(我|你)\]\s*(.*)$")
 NEXT = re.compile(r"(?:^|\|)\s*next[：:]\s*([^|]*)")
+DONE = re.compile(r"(?:^|\s)done[：:]\s*([^|]*)")
 BALL = re.compile(r"^(我|你|等)\s*[：:]\s*(.*)$")
 STAMP = re.compile(r"^\s*-\s*(\d{2})-(\d{2})\s+(\d{2}):(\d{2})\b")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
@@ -157,6 +158,7 @@ def read_task(spec, root):
     progress_lines = section_lines(sections, "进展")
     progress = progress_lines[-1].strip() if progress_lines else ""
     takeovers = [line for line in progress_lines if "接手自 " in line]
+    done_match = DONE.search(progress)
     next_match = NEXT.search(progress)
     next_text = next_match.group(1).strip() if next_match else ""
     ball_match = BALL.fullmatch(next_text)
@@ -168,7 +170,8 @@ def read_task(spec, root):
         "kind": fields.get("类型", ""),
         "scope": scope, "scope_value": scope_value, "progress": progress,
         "takeovers": takeovers,
-        "ball": ball, "next": next_text, "checks": checks,
+        "ball": ball, "next": next_text, "done": done_match.group(1).strip() if done_match else "",
+        "checks": checks,
         "spec": spec, "mtime_ns": spec.stat().st_mtime_ns,
     }
 
@@ -496,9 +499,10 @@ def claim_states(tasks, *, dsh_session_records=(), dsh_host=False):
     return states
 
 
-def active_rows(tasks, states, now):
+def active_rows(tasks, states, now, session_id=""):
     """Each active Task as the board shows it; the text board and the JSON both draw these rows."""
     return [{"name": task["name"], "status": task["status"], "ball": task_ball(task), "next": task["next"],
+             "done": task["done"], "mine": task["status"] == "in-progress" and session_matches(task["session"], session_id),
              "session": session_short(task["session"]) if task["session"] else "",
              "session_state": state, "session_kind": state.split(" ", 1)[0],
              "age": age(task, now) if task["progress"] else None}
@@ -511,16 +515,16 @@ def owner_rows(items, now):
             for task, item, is_archived in items]
 
 
-def board_json(root, *, dsh_session_records=(), dsh_host=False):
+def board_json(root, session_id="", *, dsh_session_records=(), dsh_host=False):
     """The whole board as data, nothing capped, for tools such as the task-board pane mod.
 
-    The pane reads version 1: renaming or dropping a field breaks it, so bump the version.
+    The mod reads version 1: renaming or dropping a field breaks it, so bump the version.
     """
     active, ready, archived = load_tasks(root)
     now = datetime.now()
     states = claim_states(active, dsh_session_records=dsh_session_records, dsh_host=dsh_host)
     return {"version": 1, "project": Path(root).name, "owner": owner_rows(owner_items(active, archived), now),
-            "active": active_rows(active, states, now), "ready": ready}
+            "active": active_rows(active, states, now, session_id), "ready": ready}
 
 
 def board(root, session_id="", include_session=True, *, dsh_session_records=(),
@@ -646,6 +650,9 @@ def main():
         args = sys.argv[1:]
         as_json = args[1:2] == ["--json"]
         rest = args[2:] if as_json else args[1:]
+        session_id = ""
+        if as_json and rest[:1] == ["--session"] and len(rest) >= 2:
+            session_id, rest = rest[1], rest[2:]
         if args[0] != "--board" or rest and (len(rest) != 2 or rest[0] != "--cwd"):
             return
         cwd = Path(rest[1] if rest else os.getcwd())
@@ -654,7 +661,7 @@ def main():
         _, root = project_roots(cwd)
         if root:
             dsh_host = os.environ.get("HARNESS_HOST") == "dsh"
-            output = (json.dumps(board_json(root, dsh_host=dsh_host), ensure_ascii=False) if as_json
+            output = (json.dumps(board_json(root, session_id, dsh_host=dsh_host), ensure_ascii=False) if as_json
                       else board(root, include_session=False, dsh_host=dsh_host))
             if output:
                 os.write(1, (output + "\n").encode("utf-8"))
