@@ -1,7 +1,6 @@
 Status: done
 类型: 功能
 会话: 7fb3f514-e7d0-44ff-a595-6b8128c8ad5b
-工作区: /Users/sangba/Downloads/02-代码脚本/工具脚本/harness-sibling
 建单: 改 harness 规则与钩子(owner 10-25「2我觉得可以做」「应该也有在设计的时候先参考类似模块如果能改就改老模块一起用吧」)
 
 # 设计从整体到局部
