@@ -31,13 +31,13 @@ def reminder(task, busy):
     if not checks:
         return (
             f"[harness] Task {name} 的「## 验收」还没有带执行者的勾选框:"
-            "改写成 - [ ] [我] … / - [ ] [你] …;[我] 是你当场能演示并自验的,"
-            "[你] 是只有 owner 能做或要 owner 看的。"
+            "改写成 - [ ] [我] … / - [ ] [你] … / - [ ] [等] <在等的事>: <到时看什么>;[我] 是你当场能演示并自验的,"
+            "[你] 是 owner 本人现在就能照着做的动作或要 owner 看的,[等] 是要等一件自然发生的事才能验的。"
         )
     if ready_to_close(task):
         return (
-            f"[harness] Task {name} 的 [我] 验收项已全部勾上:现在做收件三问,"
-            "改 Status: done 并归档;没勾的 [你] 项留在 spec 里,看板会继续列给 owner。"
+            f"[harness] Task {name} 的 [我] 验收项已全部勾上:现在做收件三问;归档前过一遍没勾的 [你]:已做的勾上、不用的删掉、在等事件的改成 [等];再"
+            "改 Status: done 并归档,剩下的项看板会继续列出。"
         )
     ball = task["ball"]
     next_text = task["next"]

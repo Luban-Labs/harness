@@ -74,6 +74,7 @@ class SpecTemplateTest(HookCase):
                 self.assertNotIn("<!-- 记录可省 -->", text)
                 self.assertNotIn("\n\n\n", text)
                 self.assertIn("<一句话>", text)
+                self.assertIn("- [ ] [等] <", text)
                 for title in present:
                     self.assertIn(f"## {title}\n", text)
                 for title in absent:
@@ -203,7 +204,7 @@ class SpecTemplateTest(HookCase):
     def test_priority_one_to_six_omits_seventh_rule(self):
         variants = (
             lambda text: text.replace("Status: in-progress", "Status: done"),
-            lambda text: re.sub(r"^- \[[ x]\] \[[我你]\].*\n", "", text, flags=re.M),
+            lambda text: re.sub(r"^- \[[ x]\] \[[我你等]\].*\n", "", text, flags=re.M),
             lambda text: text.replace("- [ ] [我]", "- [x] [我]"),
             lambda text: text.replace("next: 你: 确认", "next: 我: 继续"),
             lambda text: text.replace("next: 你: 确认", "next: 等: CI"),

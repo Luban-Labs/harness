@@ -20,7 +20,7 @@ MISSING_CONCEPT_LIMIT = 3
 ARCHIVE_LIMIT = 1000
 STATUS = {"ready-for-agent", "in-progress", "done"}
 HEADER = re.compile(r"^([^:#：]+)[：:]\s*(.*)$")
-CHECK = re.compile(r"^\s*-\s*\[([ xX])\]\s*\[(我|你)\]\s*(.*)$")
+CHECK = re.compile(r"^\s*-\s*\[([ xX])\]\s*\[(我|你|等)\]\s*(.*)$")
 NEXT = re.compile(r"(?:^|\|)\s*next[：:]\s*([^|]*)")
 DONE = re.compile(r"(?:^|\s)done[：:]\s*([^|]*)")
 BALL = re.compile(r"^(我|你|等)\s*[：:]\s*(.*)$")
@@ -452,6 +452,29 @@ def owner_items(active, archived):
     return items
 
 
+def waiting_items(archived):
+    """Unchecked [等] items in archive scan order, with the event before the first colon."""
+    return [{"task": task["name"], "event": re.split(r"[:：]", item, maxsplit=1)[0].strip(),
+             "item": item}
+            for task in archived for checked, actor, item in task["checks"]
+            if actor == "等" and not checked]
+
+
+def waiting_summary(items):
+    """Group exact event strings by descending count, preserving first appearance on ties."""
+    counts = {}
+    for row in items:
+        event = row["event"]
+        counts[event] = counts.get(event, 0) + 1
+    groups = sorted(counts, key=lambda event: -counts[event])
+    shown = " · ".join(f"{event[:40] + '…' if len(event) > 40 else event} {counts[event]}"
+                       for event in groups[:5])
+    if len(groups) > 5:
+        shown += f" · 等 {len(groups)} 件"
+    return (f"[harness] 等事件 {len(items)} 条: {shown};"
+            "事件发生时按 docs/rules/harness.md「推进与请示」一次验完")
+
+
 def task_ball(task):
     return ("待归档" if task["status"] == "done" else
             "待结案" if ready_to_close(task) else task["ball"])
@@ -516,22 +539,27 @@ def owner_rows(items, now):
 
 
 def board_json(root, session_id="", *, dsh_session_records=(), dsh_host=False):
-    """The whole board as data, nothing capped, for tools such as the task-board pane mod.
+    """The whole board as data for tools such as the task-board pane mod.
+
+    Display truncation does not apply; the archive scan limit still applies.
 
     The mod reads version 1: renaming or dropping a field breaks it, so bump the version.
+    Additive fields such as waiting keep version 1.
     """
     active, ready, archived = load_tasks(root)
     now = datetime.now()
     states = claim_states(active, dsh_session_records=dsh_session_records, dsh_host=dsh_host)
     return {"version": 1, "project": Path(root).name, "owner": owner_rows(owner_items(active, archived), now),
-            "active": active_rows(active, states, now, session_id), "ready": ready}
+            "active": active_rows(active, states, now, session_id), "ready": ready,
+            "waiting": waiting_items(archived)}
 
 
 def board(root, session_id="", include_session=True, *, dsh_session_records=(),
           allow_own=True, dsh_host=False):
     active, ready, archived = load_tasks(root)
     owner = owner_items(active, archived)
-    if not active and not ready and not owner:
+    waiting = waiting_items(archived)
+    if not active and not ready and not owner and not waiting:
         return ""
     lines = []
     if include_session and session_id:
@@ -574,6 +602,8 @@ def board(root, session_id="", include_session=True, *, dsh_session_records=(),
         shown = ", ".join(ready[:READY_LIMIT])
         more = f" 等 {len(ready)} 个" if len(ready) > READY_LIMIT else ""
         lines.append(f"[harness] 待开工 Task: {shown}{more};需求相关时先读 .scratch/<名>/spec.md")
+    if waiting:
+        lines.append(waiting_summary(waiting))
     return "\n".join(lines)
 
 

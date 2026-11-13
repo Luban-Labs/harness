@@ -146,7 +146,7 @@ class SessionStartTest(HookCase):
 
     def test_json_board_on_an_empty_project_and_bad_flags(self):
         self.assertEqual(json.loads(self.board(None, "--json")),
-                         {"version": 1, "project": self.root.name, "owner": [], "active": [], "ready": []})
+                         {"version": 1, "project": self.root.name, "owner": [], "active": [], "ready": [], "waiting": []})
         self.spec("ready", "Status: ready-for-agent\n")
         self.assertEqual(json.loads(self.board(None, "--json"))["ready"], ["ready"])
         for argv in (["--board", "--json", "--cwd"],
@@ -251,6 +251,70 @@ class SessionStartTest(HookCase):
         self.assertTrue(hook["session_matches"]("abcdefgh", "abcdefgh-1234"))
         self.assertFalse(hook["session_matches"]("abcdefg", "abcdefg-1234"))
         self.assertFalse(hook["session_matches"]("abcdefgh-2", "abcdefgh-1234"))
+
+    def test_waiting_checks_do_not_require_closure(self):
+        spec = self.spec("wait", "Status: in-progress\n\n## 验收\n"
+                         "- [ ] [等] 上架: 看日志\n- [X] [等] 已发生：已看\n")
+        task = hook["read_task"](spec, self.root)
+        self.assertEqual(task["checks"], [(False, "等", "上架: 看日志"),
+                                          (True, "等", "已发生：已看")])
+        self.assertFalse(hook["ready_to_close"](task))
+        task["checks"].append((True, "我", "自验"))
+        self.assertTrue(hook["ready_to_close"](task))
+
+    def test_waiting_archive_groups_and_json_scan_order(self):
+        self.spec("active", "Status: in-progress\n\n## 验收\n- [ ] [等] 活跃项: 不列\n")
+        self.spec("ready", "Status: ready-for-agent\n")
+        self.spec("a", "Status: done\n\n## 验收\n"
+                  "- [ ] [等]  较早 ： 看A: 保留后文\n"
+                  "- [ ] [等] 上架: 看B\n- [x] [等] 已发生: 不列\n"
+                  "- [ ] [你] 现在批准\n", archive=True)
+        self.spec("b", "Status: done\n\n## 验收\n"
+                  "- [ ] [等] 上架：看C\n- [ ] [等] 无冒号\n"
+                  "- [ ] [等] 较晚: 看D\n- [ ] [等] 上架后: 看E\n", archive=True)
+        data = json.loads(self.board(None, "--json"))
+        self.assertEqual(data["version"], 1)
+        self.assertEqual(data["waiting"], [
+            {"task": "a", "event": "较早", "item": "较早 ： 看A: 保留后文"},
+            {"task": "a", "event": "上架", "item": "上架: 看B"},
+            {"task": "b", "event": "上架", "item": "上架：看C"},
+            {"task": "b", "event": "无冒号", "item": "无冒号"},
+            {"task": "b", "event": "较晚", "item": "较晚: 看D"},
+            {"task": "b", "event": "上架后", "item": "上架后: 看E"},
+        ])
+        self.assertEqual([row["item"] for row in data["owner"]], ["现在批准"])
+        lines = self.board().splitlines()
+        index = next(i for i, line in enumerate(lines) if "待开工 Task" in line)
+        self.assertEqual(lines[index + 1],
+                         "[harness] 等事件 6 条: 上架 2 · 较早 1 · 无冒号 1 · 较晚 1 · 上架后 1;"
+                         "事件发生时按 docs/rules/harness.md「推进与请示」一次验完")
+
+    def test_waiting_only_board_caps_groups_and_event_names(self):
+        events = ["长" * 41, "边" * 40, "事三", "事四", "事五", "事六"]
+        self.spec("a", "Status: done\n\n## 验收\n" + "\n".join(
+            f"- [ ] [等] {event}: 核验" for event in events), archive=True)
+        expected = ("[harness] 等事件 6 条: " + "长" * 40 + "… 1 · " + "边" * 40
+                    + " 1 · 事三 1 · 事四 1 · 事五 1 · 等 6 件;"
+                    "事件发生时按 docs/rules/harness.md「推进与请示」一次验完")
+        self.assertEqual(self.board().strip(), expected)
+        self.assertEqual(self.context({"cwd": str(self.root)}), expected)
+        data = json.loads(self.board(None, "--json"))
+        self.assertEqual([row["event"] for row in data["waiting"]], events)
+        self.assertEqual(data["owner"], [])
+        self.assertEqual((data["active"], data["ready"]), ([], []))
+
+    def test_checked_waiting_items_leave_board_empty(self):
+        self.spec("a", "Status: done\n\n## 验收\n- [X] [等] 上架: 已验\n", archive=True)
+        self.assertEqual(self.board(), "")
+        self.assertEqual(json.loads(self.board(None, "--json"))["waiting"], [])
+
+    def test_waiting_uses_existing_archive_limit(self):
+        from unittest.mock import patch
+        self.spec("a", "Status: done\n\n## 验收\n- [ ] [等] 上架: 看A\n", archive=True)
+        self.spec("b", "Status: done\n\n## 验收\n- [ ] [等] 上架: 看B\n", archive=True)
+        with patch.dict(hook["board_json"].__globals__, ARCHIVE_LIMIT=1):
+            data = hook["board_json"](self.root)
+        self.assertEqual(data["waiting"], [{"task": "a", "event": "上架", "item": "上架: 看A"}])
 
     def test_bad_header_and_scope_are_individual_errors(self):
         for text in ("Status: ready-for-agent\nno colon\n", "Status: invalid\n",

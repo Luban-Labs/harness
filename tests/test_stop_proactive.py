@@ -108,7 +108,7 @@ class StopProactiveTest(HookCase):
         )
         self.assert_reminder(
             self.output(session=self.SESSION),
-            "[harness] Task active 的「## 验收」还没有带执行者的勾选框:改写成 - [ ] [我] … / - [ ] [你] …;[我] 是你当场能演示并自验的,[你] 是只有 owner 能做或要 owner 看的。",
+            "[harness] Task active 的「## 验收」还没有带执行者的勾选框:改写成 - [ ] [我] … / - [ ] [你] … / - [ ] [等] <在等的事>: <到时看什么>;[我] 是你当场能演示并自验的,[你] 是 owner 本人现在就能照着做的动作或要 owner 看的,[等] 是要等一件自然发生的事才能验的。",
         )
 
     def test_archive_command_quotes_each_task_path(self):
@@ -130,7 +130,7 @@ class StopProactiveTest(HookCase):
         )
         self.assert_reminder(
             self.output(session=self.SESSION),
-            "[harness] Task active 的 [我] 验收项已全部勾上:现在做收件三问,改 Status: done 并归档;没勾的 [你] 项留在 spec 里,看板会继续列给 owner。",
+            "[harness] Task active 的 [我] 验收项已全部勾上:现在做收件三问;归档前过一遍没勾的 [你]:已做的勾上、不用的删掉、在等事件的改成 [等];再改 Status: done 并归档,剩下的项看板会继续列出。",
         )
         self.assertEqual(self.output(session="different-session"), "")
         self.assertEqual(self.output(session=self.SESSION[:7]), "")
@@ -293,6 +293,7 @@ class StopProactiveTest(HookCase):
     def test_only_owner_checks_or_incomplete_self_checks_do_not_close(self):
         for checks in (
             ["- [ ] [你] approve"],
+            ["- [ ] [等] 上架: 看日志"],
             ["- [x] [我] first", "- [ ] [我] second", "- [ ] [你] approve"],
         ):
             with self.subTest(checks=checks):
