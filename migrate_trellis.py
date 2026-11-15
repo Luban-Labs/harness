@@ -842,11 +842,7 @@ def _plan_text_files(plan):
 def _plan_install(plan):
     expected_files = (
         (HARNESS / "docs/rules/harness.md", Path("docs/rules/harness.md")),
-        (HARNESS / ".claude/hooks/session_start.py", Path(".claude/hooks/session_start.py")),
-        (HARNESS / ".claude/hooks/stop_guard.py", Path(".claude/hooks/stop_guard.py")),
-        (HARNESS / ".claude/hooks/stop_evidence.py", Path(".claude/hooks/stop_evidence.py")),
-        (HARNESS / ".claude/hooks/judgment_twins.py", Path(".claude/hooks/judgment_twins.py")),
-        (HARNESS / ".claude/hooks/dictionary_updates.py", Path(".claude/hooks/dictionary_updates.py")),
+        *((HARNESS / ".claude/hooks" / name, Path(f".claude/hooks/{name}")) for name in init.HOOKS),
     )
     base = init.Plan(plan.root)
     for src, rel in expected_files:
@@ -911,11 +907,7 @@ def _fully_migrated(root):
     problems = []
     for source, rel in (
         (HARNESS / "docs/rules/harness.md", Path("docs/rules/harness.md")),
-        (HARNESS / ".claude/hooks/session_start.py", Path(".claude/hooks/session_start.py")),
-        (HARNESS / ".claude/hooks/stop_guard.py", Path(".claude/hooks/stop_guard.py")),
-        (HARNESS / ".claude/hooks/stop_evidence.py", Path(".claude/hooks/stop_evidence.py")),
-        (HARNESS / ".claude/hooks/judgment_twins.py", Path(".claude/hooks/judgment_twins.py")),
-        (HARNESS / ".claude/hooks/dictionary_updates.py", Path(".claude/hooks/dictionary_updates.py")),
+        *((HARNESS / ".claude/hooks" / name, Path(f".claude/hooks/{name}")) for name in init.HOOKS),
     ):
         target = root / rel
         if (not _safe_without_follow(root, target) or target.is_symlink() or not target.is_file()

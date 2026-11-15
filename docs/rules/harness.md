@@ -1,6 +1,6 @@
 # Task 规则
 
-周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问)→ 按「何时建 Task」判,命中才建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 建了 Task 的按「设计从整体到局部」走四步,没建 Task 的走③④→ 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件三问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID 与建 Task 命令、本会话认领的 Task、被别人接手的提示、「等你的事」、每个进行中 Task 一行(含认领会话在做、挂着还是断了)、待开工 Task 名、「等事件」,核心判断表有概念时末尾附一行完整概念清单;清单里还点出唯一实现路径找不到的概念,最多列 3 个,超出时写总数;没有 in-progress(含已 done 未归档)、ready-for-agent、「等你的事」与「等事件」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,对它们和本会话写过的 spec 查格式,本轮新写的函数像判断且库里已有同类时点名这些同类,本轮改了职责表点名的定义却没同步字典时提醒更新,每个用户回合最多提醒一次。
+周期链:对需求用 interview-me skill(两平台都按其描述触发;采访式,一次一问)→ 按「何时建 Task」判,命中才建 Task(`.scratch/<功能名>/spec.md`,首行 `Status: ready-for-agent`)→ 开工(改 `in-progress`,写 `会话:` 认领)→ 建了 Task 的按「设计从整体到局部」走四步,没建 Task 的走③④→ 每轮停下前补一行进展,写清球在谁手里 → `[我]` 验收项全勾 → 收件三问 → 改 `done` 并归档。SessionStart hook 在开场与压缩后注入看板:本会话 ID 与建 Task 命令、本会话认领的 Task、被别人接手的提示、「等你的事」、每个进行中 Task 一行(含认领会话在做、挂着还是断了)、待开工 Task 名、「等事件」,核心判断表有概念时末尾附一行完整概念清单与 `judgments.py show <名>` 用法;清单里还点出唯一实现路径找不到的概念,最多列 3 个,超出时写总数;没有 in-progress(含已 done 未归档)、ready-for-agent、「等你的事」与「等事件」时什么都不注入。Stop hook 对本会话认领的 Task 提醒结案、接着做与补回看,对它们和本会话写过的 spec 查格式,本轮新写的函数像判断且库里已有同类时点名这些同类,本轮改了职责表点名的定义却没同步字典时提醒更新,本轮改了核心判断表且动过的节不合形状时点名,每个用户回合最多提醒一次。
 
 ## spec 格式
 
@@ -43,7 +43,7 @@
 
 ## 设计从整体到局部
 
-1. ① 梳理整体:建了 Task 的先读项目 `docs/rules/architecture.md` 总图和 `docs/rules/core-judgments.md` 职责表,说清需求落在哪条业务链、涉及哪些块、各职责现在由谁负责、有几份。总图还没有内容时,先按当前代码与模块文档补出这次涉及的部分。
+1. ① 梳理整体:建了 Task 的先读项目 `docs/rules/architecture.md` 总图,并用 `python3 .claude/hooks/judgments.py` 按需查 `docs/rules/core-judgments.md` 职责表,说清需求落在哪条业务链、涉及哪些块、各职责现在由谁负责、有几份。总图还没有内容时,先按当前代码与模块文档补出这次涉及的部分。
 2. ② 要不要重排:判断加入需求后原结构还顺不顺;顺就沿原结构加,不顺先定新结构、更新设计中的总图,再动手。重排超出本 Task 的目标或授权范围时先问 owner。实现中发现改变结构的新认识就停下回到②,补齐设计和影响面后继续。
 3. ③ 扫影响面:按确定的结构清点所有使用方,执行「改动的影响面」。
 4. ④ 复用:从①查出的负责处调用;老实现有错就修负责处,语义不同就另起名,执行「核心判断只写一份」。
@@ -69,8 +69,10 @@
 
 ### 核心判断只写一份
 
-- 核心判断表登记被两处以上用来做决定的判断、业务数、限制或保护。项目在 docs/rules/core-judgments.md 维护这张职责表,每个概念一节:一句定义、唯一实现、语义例外、待收口的副本。唯一实现写成反引号包住的项目根相对 `路径:函数名`、`路径:类名` 或 `路径:类名.方法名`,口径未定时写「待定」。项目有 CONTEXT.md 的,概念名沿用其中的词。项目还没有这张表时,下面的查表与登记跳过,待收口写进影响面的已知差异。
-- 新写或改一个判断、业务数、限制或保护前,先查表,再按概念、同义词、涉及的字段和被比较的值全库找同类写法;现成职责正确就共用,有错就改负责处,意思不同就另起名;Stop 只按名字点出同类,不能代替这一步。
+- 核心判断表登记被两处以上用来做决定的判断、业务数、限制或保护。项目在 docs/rules/core-judgments.md 维护这张索引表,一节是一张短卡,按字符数合计 ≤300 字:定义(一句,≤120 字)、唯一实现(只写反引号包住的项目根相对 `路径:函数名`、`路径:类名` 或 `路径:类名.方法名` 加分隔符,不夹说明,口径未定写「待定」)、语义例外(每项一行,≤120 字,没有写「无」)、待收口(每项一行,≤120 字,没有写「无」)、可选「详情」(`docs/judgments/<概念名>.md`)。项目有 CONTEXT.md 的,概念名沿用其中的词。项目还没有这张表时,下面的查表与登记跳过,待收口写进影响面的已知差异。
+- 节内禁写「出处:」与 `MM-DD` 日期(前后非数字即算,紧邻字母同禁;文件路径与版本号除外);owner 原话、事故经过写进 spec「不做」、`docs/decisions.md` 或提交信息,改动历史留给 `git log`。`docs/judgments/<概念名>.md` 只写代码看不出的边界、为什么不那样做和容易踩的坑,不抄代码步骤,大多数概念不需要它;没有节通过「详情」指向的文件算孤儿。
+- 查表与派工一律用 `python3 .claude/hooks/judgments.py` 按需看(`ls` 列概念与定义、`show <名>` 看一节、`show <名> --detail` 连详情一起看、`check` 查整表形状,完整用法见 `--help`),不整表读进上下文;派工任务书写明要跑的 `show` 命令,不让工人读整张表。
+- 新写或改一个判断、业务数、限制或保护前,先用 `judgments.py` 按需查表,再按概念、同义词、涉及的字段和被比较的值全库找同类写法;现成职责正确就共用,有错就改负责处,意思不同就另起名;Stop 只按名字点出同类,不能代替这一步。
 - 现成的有毛病:修现成那一份,修它算本次改动,按「改动的影响面」清点它的使用方。这次不修要有 owner 原话作出处:建了 Task 的写进 spec 的「不做」,没建 Task 的写进提交信息或交付说明;再在表里记成待收口、在影响面写成已知差异;不在自己模块另写一份绕过去。
 - 使用方要的意思本来就不同(例如比价要不要把相邻区当同区):在表里写明例外和理由,另起名字,不复用原名。
 - 一个判断、业务数、限制或保护出现第二个使用方,或核实已有两份以上(影响面清点查出的;Stop 点名的同类先读过、确认是同一概念)时当场登记,各份列进待收口。各份口径不一致时唯一实现写「待定」;待定期间要用它的改动,有收口设计的(spec 或设计稿里写明了以后的唯一实现)照设计做、不另请示,没有收口设计的先问 owner 用哪份。建表或升级时,已知还在多处各写的判断、业务数、限制或保护一并登记。文档或注释里写着「这里另用一套」的,是待收口项,登记进表,不当成事实记录。
@@ -92,7 +94,7 @@
 - 收件时逐行检查根 `AGENTS.md` 路由表登记的文档,并对每项回答“已更新”或“不受影响”。
 - 回答“已更新”时必须真实修改对应文档。
 - 第一问同时逐项核对 spec 的 `## 影响面`:「跟改」的已真改,「不受影响」的理由仍成立,「已知差异」已记在写明的地方,不再留「开工前清点」。
-- 第一问还要答:本 Task 新写或改过的判断、业务数、限制或保护,docs/rules/core-judgments.md 是否已同步(新登记、唯一实现位置、待收口);结构改变时 docs/rules/architecture.md 与相关模块文档是否已同步。
+- 第一问还要答:本 Task 新写或改过的判断、业务数、限制或保护,docs/rules/core-judgments.md 是否已同步(新登记、唯一实现位置、待收口)及本次动过的节合不合形状(`python3 .claude/hooks/judgments.py check`);结构改变时 docs/rules/architecture.md 与相关模块文档是否已同步。
 - 收件第二问回答“是否有需沉淀的规则”;需要沉淀时写入 `docs/rules/<主题>.md`,新增主题时在根 `AGENTS.md` 路由表增加一行。
 - 收件第三问回答“正文和最终状态一致吗”:目标、不做、实现决策、验收与实际做成的一致,过时的已删;不一致先改正文。
 - 有 ticket 的 Task(头部有 `Tickets:` 行):做完一张就关一张(GitHub 关 issue,本地改该文件 `Status: done`)并同时写一行进展;正在做哪张只写在进展行。
@@ -122,6 +124,8 @@ DSH 的取证只读调度器传来的 v4 zstd 日志路径,只算 append 的 too
 
 另有字典更新提醒,与有没有 Task 无关:本轮成功编辑碰到职责表「唯一实现」点名的路径,且本轮编辑文本出现该名字时,比较该文件 HEAD 与磁盘现状中该名字的全部定义签名;两边不同且同轮没改职责表或总图时,在同一次 Stop 输出点名概念、名字与文件,指向「设计从整体到局部」。Edit/MultiEdit 按 file_path 取路径、按 old/new 找名字;Write、不带内容的删除与 Codex move_path 的原路径整篇换掉旧文本,该路径点名的名字都算;其余 Codex FileChange 按 content 或 diff 增删行找名字。只比对 Python 文件:用 ast 整文件解析任意嵌套层的 FunctionDef、AsyncFunctionDef、ClassDef 与模块、类层级的赋值,签名取外层名字、装饰器、类型参数、参数、返回注解、类的基类与关键字,赋值只认名字在哪一层;其他语言的点名不比对。HEAD 没有该文件就跳过;HEAD 有而磁盘没有时按删除处理;任一侧解析失败只跳过该文件。以 HEAD 为基线:之前回合未提交的签名改动,本轮再改到这个名字时会再提醒一次。成功编辑及本回合边界复用 `.claude/hooks/stop_evidence.py:turn_edits`,职责表条目复用 `.claude/hooks/session_start.py:core_judgment_entries`,整文件签名复用 `.claude/hooks/dictionary_updates.py:definition_signatures`;整项限时 1.5 秒,超时或异常只跳过这项。唯一实现路径找不到属于开场静态检查,不在 Stop 重复提醒。
 
+另有判断表形状提醒,与有没有 Task 无关:本轮成功编辑过 `docs/rules/core-judgments.md` 时,对比该文件 `HEAD` 与磁盘版本(HEAD 没有该文件时把所有节当新改),只对内容变了且违规的节(复用 `.claude/hooks/judgments.py:table_issues`)在同一次 Stop 输出点名,每次最多列 3 节并写总数,指向「核心判断只写一份」。表不存在或解析失败时跳过;成功编辑及本回合边界复用 `.claude/hooks/stop_evidence.py:turn_edits`,表解析复用 `.claude/hooks/session_start.py:core_judgment_entries`;整项限时 1.5 秒,超时或异常只跳过这项。
+
 ## 安装与升级
 
 - DSH 用全局 `~/.dsh/hooks/claude-code.json` 给 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Stop、SubagentStart、SubagentStop 各登记一条 `python3 "<harness 仓库绝对路径>/dsh/cc_hooks.py"`;从 profile 的 `cordis.patch.yml` 删除 `projectDir` 后重启 DSH。调度器每事件现读 CC 用户设置、受 CC 信任记录控制的项目设置和启用插件;不再在 DSH 配置手抄项目 hook。用户级配置由 owner 落盘,init 只打印说明与未信任提示。
@@ -141,6 +145,6 @@ DSH 的取证只读调度器传来的 v4 zstd 日志路径,只算 append 的 too
 
 - Codex 在项目根 `.codex/hooks.json` 中按同一片段配置,command 改为 `python3 .codex/hooks/session_start.py` 与 `python3 .codex/hooks/stop_guard.py`(Codex 从项目根启动);Codex ≥0.153 从项目根到当前目录加载它。
 - Codex 的 hook 必须先被信任才会执行:init 装完会打印两条 `[hooks.state."<路径>:<事件>:0:0"]` 信任条目,追加到 `~/.codex/config.toml` 即可(信任按 hook 定义哈希:改脚本内容不用重信,改 command 或 timeout 要重信);也可在项目目录进 `codex` 跑一次 `/hooks`。仅做验证时可临时加 `--dangerously-bypass-hook-trust`,不得写进持久配置。
-- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py`、`judgment_twins.py`、`dictionary_updates.py` 和 `docs/rules/harness.md`;init 会将这五个脚本与规则文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/SKILL.md`、`templates/spec.md`、`references/to-spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 与职责表解析、stop_evidence.py 的本回合编辑取证、judgment_twins.py 的同类判断提醒和 dictionary_updates.py 的字典更新提醒,五个脚本要同版本;单项提醒脚本缺失或出错只跳过该项。项目里改过的文件不整篇覆盖:先 diff,只合入上游的改动,保留项目自己的行。项目 AGENTS.md 的路由表要有 templates/AGENTS.md 的每条固定路由(按「读」列认),升级时缺哪行照抄哪行,已有的不动;迁移会自动补齐。
+- harness 升级时重新复制 `.claude/hooks/` 下的 `session_start.py`、`stop_guard.py`、`stop_evidence.py`、`judgment_twins.py`、`dictionary_updates.py`、`judgments.py` 和 `docs/rules/harness.md`;init 会将这六个脚本与规则文件复制进项目。装了 interview-me 的项目同时复制 `.agents/skills/interview-me/SKILL.md`、`templates/spec.md`、`references/to-spec.md` 与 `references/to-tickets.md`。Stop 用到 session_start.py 的 spec 与职责表解析、stop_evidence.py 的本回合编辑取证、judgment_twins.py 的同类判断提醒、dictionary_updates.py 的字典更新提醒和 judgments.py 的判断表形状提醒,六个脚本要同版本;单项提醒脚本缺失或出错只跳过该项。项目里改过的文件不整篇覆盖:先 diff,只合入上游的改动,保留项目自己的行。项目 AGENTS.md 的路由表要有 templates/AGENTS.md 的每条固定路由(按「读」列认),升级时缺哪行照抄哪行,已有的不动;迁移会自动补齐。
 - `docs/rules/core-judgments.md` 与 `docs/rules/architecture.md` 归项目所有:init、迁移与升级时项目没有,分别照 harness 的 `templates/core-judgments.md` 与 `templates/architecture.md` 标记行之前建空文件;有了不动、不覆盖。
 - 改「设计从整体到局部」「改动的影响面」「核心判断只写一份」节名时,同步核对仓库内及已装项目的路由表、interview-me 引用和 hook 提醒文案。
