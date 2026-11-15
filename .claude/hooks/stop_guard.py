@@ -296,6 +296,16 @@ def dictionary_reminder(payload, cwd, root):
         return None
 
 
+def judgment_reminder(payload, cwd, root):
+    """Drop only the table-shape reminder if its optional check fails or exceeds its budget."""
+    try:
+        from judgments import reminder as judgments
+
+        return judgments(payload, cwd, root)
+    except Exception:
+        return None
+
+
 def task_reminder(payload, cwd, scan_root, task_root):
     """Return this stop's Task reminders: claimed Tasks and written specs first, else the fallback."""
     from session_start import read_tasks, session_matches, task_scope, template_skeleton
@@ -385,7 +395,8 @@ def main():
     # Optional reminders share the existing output and fail independently.
     messages = [message for message in (task_reminder(payload, cwd, scan_root, task_root),
                                         twin_reminder(payload, cwd, task_root),
-                                        dictionary_reminder(payload, cwd, task_root)) if message]
+                                        dictionary_reminder(payload, cwd, task_root),
+                                        judgment_reminder(payload, cwd, scan_root or task_root)) if message]
     if messages:
         return output_message("\n".join(messages), dsh_host() or "turn_id" in payload)
 

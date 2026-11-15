@@ -5,7 +5,7 @@
 装的东西:
   AGENTS.md(来自 templates/AGENTS.md;已有就保留,提示手动加路由行)+ CLAUDE.md 符号链接
   docs/rules/harness.md(复制)、docs/rules/core-judgments.md(空的核心判断表;已有就保留)、docs/rules/architecture.md(空总图;已有就保留)、docs/decisions.md(空账本)、.scratch/.gitkeep
-  五个 hook 脚本(session_start.py、stop_guard.py、stop_evidence.py、judgment_twins.py、dictionary_updates.py)复制到 .claude/hooks/,.codex/hooks 做符号链接指过去
+  六个 hook 脚本(session_start.py、stop_guard.py、stop_evidence.py、judgment_twins.py、dictionary_updates.py、judgments.py)复制到 .claude/hooks/,.codex/hooks 做符号链接指过去
   .claude/settings.json 与 .codex/hooks.json 追加 SessionStart / Stop 两条 hook,
   Claude 用 "$CLAUDE_PROJECT_DIR"/.claude/hooks/…,Codex 用 .codex/hooks/…(从项目根启动);已有配置只追加不改其他键
   .gitignore 追加 .scratch/.session
@@ -26,7 +26,7 @@ from pathlib import Path
 from dsh.cc_hooks import trusted_project
 
 HARNESS = Path(__file__).resolve().parent
-HOOKS = ("session_start.py", "stop_guard.py", "stop_evidence.py", "judgment_twins.py", "dictionary_updates.py")
+HOOKS = ("session_start.py", "stop_guard.py", "stop_evidence.py", "judgment_twins.py", "dictionary_updates.py", "judgments.py")
 SKILL = "interview-me"
 LEDGER = "# 决策账本\n\n给人看的。不进路由表、不进任何注入;只追加。每条:背景、决定、为什么。\n"
 GITIGNORE_LINE = ".scratch/.session"

@@ -91,7 +91,7 @@ def reminder(payload, cwd, root):
 
     owners = {}
     by_path = {}
-    for concept, implementations in entries:
+    for concept, implementations, _ in entries:
         for relative, name in implementations:
             if relative.endswith(".py"):
                 owners.setdefault((scoped(relative), name), []).append(concept)

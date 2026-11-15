@@ -33,8 +33,10 @@ class InitProjectTest(unittest.TestCase):
             self.assertTrue((t / ".codex" / "hooks").is_symlink())
             self.assertTrue((t / ".codex" / "hooks" / "session_start.py").is_file())
             for name in ("session_start.py", "stop_guard.py", "stop_evidence.py",
-                         "judgment_twins.py", "dictionary_updates.py"):
+                         "judgment_twins.py", "dictionary_updates.py", "judgments.py"):
                 self.assertEqual((t / ".claude" / "hooks" / name).read_bytes(),
+                                 (ROOT / ".claude" / "hooks" / name).read_bytes())
+                self.assertEqual((t / ".codex" / "hooks" / name).read_bytes(),
                                  (ROOT / ".claude" / "hooks" / name).read_bytes())
             self.assertTrue((t / ".agents" / "skills" / "interview-me" / "SKILL.md").is_file())
             self.assertTrue((t / ".claude" / "skills" / "interview-me").is_symlink())

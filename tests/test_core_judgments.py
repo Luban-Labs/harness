@@ -19,7 +19,8 @@ import init  # noqa: E402
 
 
 TABLE = "docs/rules/core-judgments.md"
-LINE = "[harness] 核心判断表 docs/rules/core-judgments.md:同区、同场;设计前先读 docs/rules/architecture.md 总图并查本表"
+SUFFIX = ";设计前先读 docs/rules/architecture.md 总图并查本表;看哪节用 python3 .claude/hooks/judgments.py show <名>"
+LINE = f"[harness] 核心判断表 docs/rules/core-judgments.md:同区、同场{SUFFIX}"
 
 
 class ConceptLineTest(HookCase):
@@ -61,10 +62,10 @@ class ConceptLineTest(HookCase):
         names = [f"概念{n}" for n in range(1, 22)]
         self.table("".join(f"## {name}\n" for name in names))
         line = self.context().splitlines()[-1]
-        self.assertEqual(line, f"[harness] 核心判断表 {TABLE}:{'、'.join(names)};设计前先读 docs/rules/architecture.md 总图并查本表")
+        self.assertEqual(line, f"[harness] 核心判断表 {TABLE}:{'、'.join(names)}{SUFFIX}")
         self.table("".join(f"## {name}\n" for name in names[:20]))
         self.assertEqual(self.context().splitlines()[-1],
-                         f"[harness] 核心判断表 {TABLE}:{'、'.join(names[:20])};设计前先读 docs/rules/architecture.md 总图并查本表")
+                         f"[harness] 核心判断表 {TABLE}:{'、'.join(names[:20])}{SUFFIX}")
 
     def test_missing_implementation_files_are_named_on_the_same_line(self):
         self.ready()
@@ -282,6 +283,7 @@ class HarnessTableTest(unittest.TestCase):
         "stop_evidence": REPO / ".claude" / "hooks" / "stop_evidence.py",
         "judgment_twins": REPO / ".claude" / "hooks" / "judgment_twins.py",
         "dictionary_updates": REPO / ".claude" / "hooks" / "dictionary_updates.py",
+        "judgments": REPO / ".claude" / "hooks" / "judgments.py",
         "init": REPO / "init.py",
         "migrate_trellis": REPO / "migrate_trellis.py",
         "cc_hooks": REPO / "dsh" / "cc_hooks.py",
@@ -305,8 +307,17 @@ class HarnessTableTest(unittest.TestCase):
                 self.assertIn(function, defined[module])
                 self.assertEqual([name for name, names in defined.items()
                                   if name != module and function in names], [])
-        for copy in ("task_scope", "read_tasks", "spec_kind", "spec_sections", "section_lines", "ready_to_close", "excluded_dir", "session_records", "turn_boundary"):
+        for copy in ("task_scope", "read_tasks", "spec_kind", "spec_sections", "section_lines", "ready_to_close",
+                     "excluded_dir", "session_records", "turn_boundary", "table_issues", "core_judgment_entries"):
             self.assertNotIn(copy, defined["stop_guard"])
+        self.assertNotIn("core_judgment_entries", defined["judgments"])
+
+    def test_harness_table_passes_judgments_check(self):
+        result = subprocess.run(
+            [sys.executable, str(REPO / ".claude" / "hooks" / "judgments.py"), "check", "--cwd", str(REPO)],
+            capture_output=True, text=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
 
 
 if __name__ == "__main__":

@@ -263,44 +263,74 @@ def load_tasks(root):
     return active, ready, archived
 
 
-def core_judgment_entries(root, deadline=None):
-    """Read unfenced concepts and backticked project-relative path:name implementations."""
+def parse_implementation_ref(reference, root):
+    """Return (relative, name) for a valid project-relative `path:name`, or None."""
+    relative, colon, name = reference.rpartition(":")
+    if (not colon or not relative or Path(relative).is_absolute() or "\\" in relative
+            or any(part in ("", ".", "..") for part in relative.split("/"))
+            or not all(char.isprintable() for char in relative)
+            or not re.fullmatch(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*", name)):
+        return None
+    return (relative, name) if (root / relative).resolve().is_relative_to(root) else None
+
+
+def core_judgment_entries(root, deadline=None, *, text=None):
+    """Read unfenced concepts, backticked path:name implementations, and raw section text."""
     root = Path(root).resolve()
     entries = []
     current = None
+    body = None
     fence = ""
-    try:
-        with (root / CORE_TABLE).open(encoding="utf-8") as stream:
-            for line in stream:
-                if deadline is not None and time.monotonic() >= deadline:
-                    raise TimeoutError("responsibility table scan ran out of time")
-                match = FENCE.match(line)
-                if fence:
-                    if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) \
-                            and not line.strip().strip(fence[0]):
-                        fence = ""
-                elif match:
-                    fence = match.group(1)
-                elif line.startswith("## ") and line[3:].strip():
-                    current = (line[3:].strip(), [])
+
+    def scan(lines):
+        nonlocal current, body, fence
+        for raw_line in lines:
+            line = raw_line.rstrip("\r\n")
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError("responsibility table scan ran out of time")
+            match = FENCE.match(line)
+            if fence:
+                if body is not None:
+                    body.append(line)
+                if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) \
+                        and not line.strip().strip(fence[0]):
+                    fence = ""
+            elif match:
+                fence = match.group(1)
+                if body is not None:
+                    body.append(line)
+            elif line.startswith("## "):
+                title = line[3:].strip()
+                if title:
+                    body = [line]
+                    current = [title, [], body]
                     entries.append(current)
-                elif line.startswith("# "):
+                else:
                     current = None
-                elif current is not None and re.match(r"^\s*-\s*唯一实现\s*[:：]", line):
+                    body = None
+            elif line.startswith("# "):
+                current = None
+                body = None
+            elif current is not None:
+                body.append(line)
+                if re.match(r"^\s*-\s*唯一实现\s*[:：]", line):
                     for reference in re.findall(r"`([^`\r\n]+)`", line):
-                        relative, colon, name = reference.rpartition(":")
-                        if (not colon or not relative or Path(relative).is_absolute() or "\\" in relative
-                                or any(part in ("", ".", "..") for part in relative.split("/"))
-                                or not all(char.isprintable() for char in relative)
-                                or not re.fullmatch(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*", name)):
-                            continue
-                        if (root / relative).resolve().is_relative_to(root):
-                            current[1].append((relative, name))
+                        parsed = parse_implementation_ref(reference, root)
+                        if parsed is not None:
+                            current[1].append(parsed)
+
+    try:
+        if text is not None:
+            scan(text.splitlines())
+        else:
+            with (root / CORE_TABLE).open(encoding="utf-8") as stream:
+                scan(stream)
     except TimeoutError:
         raise
     except (OSError, UnicodeError, ValueError):
         return []
-    return entries
+    return [(name, implementations, "\n".join(sec_lines).rstrip())
+            for name, implementations, sec_lines in entries]
 
 
 def core_judgments(root):
@@ -311,16 +341,18 @@ def core_judgments(root):
         entries = core_judgment_entries(root)
         if not entries:
             return ""
-        names = "、".join(shown(name) for name, _ in entries)
+        names = "、".join(shown(name) for name, _, _ in entries)
         missing = []
-        for name, implementations in entries:
+        for name, implementations, _ in entries:
             for relative, _ in implementations:
                 try:
                     (Path(root) / relative).stat()
                 except (FileNotFoundError, NotADirectoryError):
                     missing.append(name)
                     break
-        result = f"[harness] 核心判断表 {CORE_TABLE}:{names};设计前先读 docs/rules/architecture.md 总图并查本表"
+        result = (f"[harness] 核心判断表 {CORE_TABLE}:{names};"
+                  "设计前先读 docs/rules/architecture.md 总图并查本表;"
+                  "看哪节用 python3 .claude/hooks/judgments.py show <名>")
         if missing:
             more = f" 等 {len(missing)} 个" if len(missing) > MISSING_CONCEPT_LIMIT else ""
             result += ";唯一实现路径找不到:" + "、".join(shown(name) for name in missing[:MISSING_CONCEPT_LIMIT]) + more

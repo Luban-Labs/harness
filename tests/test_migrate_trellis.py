@@ -358,7 +358,7 @@ class MigrateTrellisBlackBoxTest(unittest.TestCase):
         self.assertTrue((self.root / ".claude/hooks/session_start.py").is_file())
         self.assertTrue((self.root / ".claude/hooks/stop_guard.py").is_file())
         for name in ("session_start.py", "stop_guard.py", "stop_evidence.py",
-                     "judgment_twins.py", "dictionary_updates.py"):
+                     "judgment_twins.py", "dictionary_updates.py", "judgments.py"):
             self.assertEqual((self.root / ".claude/hooks" / name).read_bytes(),
                              (ROOT / ".claude/hooks" / name).read_bytes())
         self.assertTrue((self.root / ".agents/skills/interview-me/SKILL.md").is_file())
